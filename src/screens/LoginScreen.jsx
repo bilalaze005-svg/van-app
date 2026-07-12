@@ -25,6 +25,18 @@ export default function LoginScreen({ onLogin }) {
         return
       }
 
+      // ✅ تحقق من صلاحية الدخول لهذا التطبيق تحديداً (مضبوطة من لوحة الإدارة → الموظفون)
+      let perms = {}
+      if (emp.emp_permissions) {
+        perms = typeof emp.emp_permissions === 'string' ? JSON.parse(emp.emp_permissions) : emp.emp_permissions
+      }
+      const hasAccess = (perms.vanApp || []).includes('view')
+      if (!hasAccess) {
+        setErr('حسابك ما عنده صلاحية الدخول لهذا التطبيق — تواصل مع الإدارة')
+        setLoading(false)
+        return
+      }
+
       const sessionUser = { id: emp.emp_id, name: emp.emp_name }
       localStorage.setItem('nq_van_employee', JSON.stringify(sessionUser))
       onLogin(sessionUser)
