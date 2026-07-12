@@ -7,20 +7,18 @@ export default function LoadTab({ employee, showToast }) {
   const [qtyMap, setQtyMap] = useState({}) // productId -> qty مُدخلة
   const [loadingId, setLoadingId] = useState(null)
   const [vanStock, setVanStock] = useState([])
-  const [loadingList, setLoadingList] = useState(false)
+  const [loadingList, setLoadingList] = useState(true)
 
   const searchProducts = useCallback(async () => {
-    if (!search.trim()) { setProducts([]); return }
     setLoadingList(true)
     try {
-      const like = `%${search.trim()}%`
-      const { data, error } = await supabase
-        .from('products')
-        .select('id,name,price,stock,sku')
-        .eq('disabled', false)
-        .or(`name.ilike.${like},sku.ilike.${like}`)
-        .order('name')
-        .limit(20)
+      let q = supabase.from('products').select('id,name,price,stock,sku,image').eq('disabled', false)
+      if (search.trim()) {
+        const like = `%${search.trim()}%`
+        q = q.or(`name.ilike.${like},sku.ilike.${like}`)
+      }
+      // ✅ بدون بحث: تُعرض قائمة افتراضية (الأحدث إضافة) بدل شاشة فارغة تنتظر كتابة
+      const { data, error } = await q.order(search.trim() ? 'name' : 'created_at', { ascending: !!search.trim() }).limit(30)
       if (error) throw error
       setProducts(data || [])
     } catch (e) {
@@ -114,10 +112,19 @@ export default function LoadTab({ employee, showToast }) {
         style={{ width: '100%', padding: 12, borderRadius: 14, border: '1.5px solid #E2E8F0', marginBottom: 12, fontSize: 14, fontFamily: 'inherit' }}
       />
 
-      {loadingList && <div style={{ textAlign: 'center', color: '#94a3b8', padding: 20 }}>⏳ جارِ البحث...</div>}
+      {loadingList && products.length === 0 && <div style={{ textAlign: 'center', color: '#94a3b8', padding: 20 }}>⏳ جارِ التحميل...</div>}
+
+      {!loadingList && !search.trim() && products.length > 0 && (
+        <div style={{ fontSize: 12, color: '#94a3b8', fontWeight: 700, marginBottom: 8 }}>📦 أحدث المنتجات (اكتب بالأعلى للبحث في كل الكتالوج)</div>
+      )}
 
       {products.map(p => (
-        <div key={p.id} style={{ background: 'white', borderRadius: 14, padding: 12, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div key={p.id} style={{ background: 'white', borderRadius: 14, padding: 10, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+          {p.image ? (
+            <img src={p.image} alt="" style={{ width: 42, height: 42, objectFit: 'cover', borderRadius: 10, flexShrink: 0, background: '#F8FAFC' }} />
+          ) : (
+            <div style={{ width: 42, height: 42, borderRadius: 10, background: '#F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0 }}>📦</div>
+          )}
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontWeight: 700, fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
             <div style={{ fontSize: 11, color: '#94a3b8' }}>متوفر بالمخزون: {p.stock} — {p.price} دج</div>
@@ -126,11 +133,11 @@ export default function LoadTab({ employee, showToast }) {
             type="number" min="0" placeholder="الكمية"
             value={qtyMap[p.id] || ''}
             onChange={(e) => setQtyMap(prev => ({ ...prev, [p.id]: e.target.value }))}
-            style={{ width: 70, padding: 8, borderRadius: 10, border: '1.5px solid #E2E8F0', fontSize: 13, textAlign: 'center', fontFamily: 'inherit' }}
+            style={{ width: 60, padding: 8, borderRadius: 10, border: '1.5px solid #E2E8F0', fontSize: 13, textAlign: 'center', fontFamily: 'inherit' }}
           />
           <button disabled={loadingId === p.id} onClick={() => doLoad(p)}
-            style={{ background: loadingId === p.id ? '#FDBA74' : '#EA580C', color: 'white', border: 'none', borderRadius: 10, padding: '8px 12px', fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
-            {loadingId === p.id ? '⏳' : '⬆️ تحميل'}
+            style={{ background: loadingId === p.id ? '#FDBA74' : '#EA580C', color: 'white', border: 'none', borderRadius: 10, padding: '8px 10px', fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}>
+            {loadingId === p.id ? '⏳' : '⬆️'}
           </button>
         </div>
       ))}

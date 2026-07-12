@@ -112,12 +112,17 @@ export default function SellTab({ employee, showToast }) {
 
       {filtered.map(v => (
         <button key={v.product_id} onClick={() => addToCart(v)}
-          style={{ width: '100%', background: 'white', borderRadius: 14, padding: 12, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: 'none', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'right' }}>
-          <div>
+          style={{ width: '100%', background: 'white', borderRadius: 14, padding: 10, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, border: 'none', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'right' }}>
+          {v.image ? (
+            <img src={v.image} alt="" style={{ width: 46, height: 46, objectFit: 'cover', borderRadius: 10, flexShrink: 0, background: '#F8FAFC' }} />
+          ) : (
+            <div style={{ width: 46, height: 46, borderRadius: 10, background: '#F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>📦</div>
+          )}
+          <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontWeight: 700, fontSize: 13 }}>{v.name}</div>
             <div style={{ fontSize: 11, color: '#94a3b8' }}>متوفر بالكاميو: {v.qty} — {v.price} دج</div>
           </div>
-          <span style={{ background: '#FFF7ED', color: '#EA580C', borderRadius: 10, padding: '6px 12px', fontWeight: 800, fontSize: 18 }}>+</span>
+          <span style={{ background: '#FFF7ED', color: '#EA580C', borderRadius: 10, padding: '6px 12px', fontWeight: 800, fontSize: 18, flexShrink: 0 }}>+</span>
         </button>
       ))}
 
