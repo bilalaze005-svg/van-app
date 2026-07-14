@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase.js'
+import { T, cardStyle, buttonPrimary, inputStyle } from '../lib/theme.js'
 
 export default function LoadTab({ employee, showToast }) {
   const [search, setSearch] = useState('')
   const [products, setProducts] = useState([])
-  const [qtyMap, setQtyMap] = useState({}) // productId -> qty مُدخلة
+  const [qtyMap, setQtyMap] = useState({})
   const [loadingId, setLoadingId] = useState(null)
   const [vanStock, setVanStock] = useState([])
   const [loadingList, setLoadingList] = useState(true)
@@ -17,7 +18,6 @@ export default function LoadTab({ employee, showToast }) {
         const like = `%${search.trim()}%`
         q = q.or(`name.ilike.${like},sku.ilike.${like}`)
       }
-      // ✅ بدون بحث: تُعرض قائمة افتراضية (الأحدث إضافة) بدل شاشة فارغة تنتظر كتابة
       const { data, error } = await q.order(search.trim() ? 'name' : 'created_at', { ascending: !!search.trim() }).limit(30)
       if (error) throw error
       setProducts(data || [])
@@ -74,76 +74,88 @@ export default function LoadTab({ employee, showToast }) {
   return (
     <div style={{ padding: 16 }}>
       {/* ملخص مخزون الكاميو الحالي */}
-      <div style={{ background: 'linear-gradient(135deg,#EA580C,#C2410C)', borderRadius: 18, padding: 16, color: 'white', marginBottom: 16 }}>
-        <div style={{ fontSize: 13, opacity: 0.85 }}>📦 مخزون الكاميو الحالي</div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
-          <div>
-            <div style={{ fontSize: 22, fontWeight: 900 }}>{vanStock.length}</div>
-            <div style={{ fontSize: 11, opacity: 0.8 }}>منتج مختلف</div>
-          </div>
-          <div>
-            <div style={{ fontSize: 22, fontWeight: 900 }}>{vanTotalItems.toFixed(0)}</div>
-            <div style={{ fontSize: 11, opacity: 0.8 }}>قطعة إجمالاً</div>
-          </div>
-          <div>
-            <div style={{ fontSize: 22, fontWeight: 900 }}>{vanTotalValue.toFixed(0)}</div>
-            <div style={{ fontSize: 11, opacity: 0.8 }}>دج (قيمة تقديرية)</div>
-          </div>
+      <div style={{ background: T.primaryGradient, borderRadius: T.radiusLg, padding: 18, color: 'white', marginBottom: 18, boxShadow: '0 8px 24px rgba(234,88,12,.28)' }}>
+        <div style={{ fontSize: 12.5, opacity: 0.9, fontWeight: 600 }}>📦 مخزون الكاميو الحالي</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 12 }}>
+          {[
+            { v: vanStock.length, l: 'منتج مختلف' },
+            { v: vanTotalItems.toFixed(0), l: 'قطعة إجمالاً' },
+            { v: vanTotalValue.toFixed(0), l: 'دج (قيمة تقديرية)' },
+          ].map((s, i) => (
+            <div key={i}>
+              <div style={{ fontSize: 22, fontWeight: 900 }}>{s.v}</div>
+              <div style={{ fontSize: 10.5, opacity: 0.85, marginTop: 2 }}>{s.l}</div>
+            </div>
+          ))}
         </div>
       </div>
 
       {vanStock.length > 0 && (
-        <div style={{ background: 'white', borderRadius: 14, padding: 12, marginBottom: 16 }}>
-          <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 8, color: '#475569' }}>محتوى الكاميو حالياً:</div>
+        <div style={{ ...cardStyle, marginBottom: 18 }}>
+          <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 10, color: T.textSoft }}>محتوى الكاميو حالياً</div>
           {vanStock.map(v => (
-            <div key={v.product_id} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', fontSize: 13, borderBottom: '1px solid #F1F5F9' }}>
-              <span>{v.name}</span>
-              <span style={{ fontWeight: 700, color: '#EA580C' }}>{v.qty}</span>
+            <div key={v.product_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: `1px solid ${T.border}` }}>
+              {v.image ? (
+                <img src={v.image} alt="" style={{ width: 30, height: 30, objectFit: 'cover', borderRadius: 8, flexShrink: 0 }} />
+              ) : (
+                <div style={{ width: 30, height: 30, borderRadius: 8, background: T.bg, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13 }}>📦</div>
+              )}
+              <span style={{ flex: 1, fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.name}</span>
+              <span style={{ fontWeight: 800, color: T.primary, fontSize: 13 }}>{v.qty}</span>
             </div>
           ))}
         </div>
       )}
 
       {/* بحث وتحميل منتجات جديدة */}
-      <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 10 }}>➕ تحميل منتجات من المخزون الرئيسي</div>
-      <input
-        value={search} onChange={(e) => setSearch(e.target.value)}
-        placeholder="🔍 ابحث باسم المنتج أو الباركود..."
-        style={{ width: '100%', padding: 12, borderRadius: 14, border: '1.5px solid #E2E8F0', marginBottom: 12, fontSize: 14, fontFamily: 'inherit' }}
-      />
+      <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 10 }}>➕ تحميل من المخزون الرئيسي</div>
+      <div style={{ position: 'relative', marginBottom: 14 }}>
+        <span style={{ position: 'absolute', right: 16, top: '50%', transform: 'translateY(-50%)', fontSize: 15, color: T.textFaint }}>🔍</span>
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ابحث باسم المنتج أو الباركود..."
+          style={{ ...inputStyle, paddingRight: 40 }} />
+      </div>
 
-      {loadingList && products.length === 0 && <div style={{ textAlign: 'center', color: '#94a3b8', padding: 20 }}>⏳ جارِ التحميل...</div>}
+      {loadingList && products.length === 0 && <div style={{ textAlign: 'center', color: T.textFaint, padding: 30 }}>⏳ جارِ التحميل...</div>}
 
       {!loadingList && !search.trim() && products.length > 0 && (
-        <div style={{ fontSize: 12, color: '#94a3b8', fontWeight: 700, marginBottom: 8 }}>📦 أحدث المنتجات (اكتب بالأعلى للبحث في كل الكتالوج)</div>
+        <div style={{ fontSize: 12, color: T.textFaint, fontWeight: 700, marginBottom: 8 }}>📦 أحدث المنتجات</div>
       )}
 
-      {products.map(p => (
-        <div key={p.id} style={{ background: 'white', borderRadius: 14, padding: 10, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
-          {p.image ? (
-            <img src={p.image} alt="" style={{ width: 42, height: 42, objectFit: 'cover', borderRadius: 10, flexShrink: 0, background: '#F8FAFC' }} />
-          ) : (
-            <div style={{ width: 42, height: 42, borderRadius: 10, background: '#F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0 }}>📦</div>
-          )}
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 700, fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
-            <div style={{ fontSize: 11, color: '#94a3b8' }}>متوفر بالمخزون: {p.stock} — {p.price} دج</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
+        {products.map(p => (
+          <div key={p.id} style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
+            <div style={{ aspectRatio: '1.6', background: T.bg, position: 'relative' }}>
+              {p.image ? (
+                <img src={p.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              ) : (
+                <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26 }}>📦</div>
+              )}
+              <span style={{ position: 'absolute', top: 6, left: 6, background: 'rgba(255,255,255,.95)', borderRadius: T.radiusPill, padding: '2px 8px', fontSize: 9.5, fontWeight: 900, color: T.textSoft }}>
+                مخزون {p.stock}
+              </span>
+            </div>
+            <div style={{ padding: 10 }}>
+              <div style={{ fontWeight: 800, fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: 2 }}>{p.name}</div>
+              <div style={{ fontSize: 11, color: T.textFaint, marginBottom: 8 }}>{p.price} دج</div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <input
+                  type="number" min="0" placeholder="كمية"
+                  value={qtyMap[p.id] || ''}
+                  onChange={(e) => setQtyMap(prev => ({ ...prev, [p.id]: e.target.value }))}
+                  style={{ width: 0, flex: 1, padding: 7, borderRadius: T.radiusSm, border: `1.5px solid ${T.border}`, fontSize: 12, textAlign: 'center', fontFamily: 'inherit' }}
+                />
+                <button disabled={loadingId === p.id} onClick={() => doLoad(p)}
+                  style={{ ...buttonPrimary, padding: '7px 10px', fontSize: 12, flexShrink: 0, background: loadingId === p.id ? T.textFaint : T.primaryGradient }}>
+                  {loadingId === p.id ? '⏳' : '⬆️'}
+                </button>
+              </div>
+            </div>
           </div>
-          <input
-            type="number" min="0" placeholder="الكمية"
-            value={qtyMap[p.id] || ''}
-            onChange={(e) => setQtyMap(prev => ({ ...prev, [p.id]: e.target.value }))}
-            style={{ width: 60, padding: 8, borderRadius: 10, border: '1.5px solid #E2E8F0', fontSize: 13, textAlign: 'center', fontFamily: 'inherit' }}
-          />
-          <button disabled={loadingId === p.id} onClick={() => doLoad(p)}
-            style={{ background: loadingId === p.id ? '#FDBA74' : '#EA580C', color: 'white', border: 'none', borderRadius: 10, padding: '8px 10px', fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}>
-            {loadingId === p.id ? '⏳' : '⬆️'}
-          </button>
-        </div>
-      ))}
+        ))}
+      </div>
 
       {!loadingList && search.trim() && products.length === 0 && (
-        <div style={{ textAlign: 'center', color: '#94a3b8', padding: 20 }}>لا توجد نتائج</div>
+        <div style={{ textAlign: 'center', color: T.textFaint, padding: 30 }}>لا توجد نتائج</div>
       )}
     </div>
   )
