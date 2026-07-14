@@ -45,7 +45,7 @@ export default function App() {
       <div style={{ background: 'linear-gradient(135deg,#EA580C,#C2410C)', padding: '18px 18px 14px', color: 'white', borderRadius: '0 0 20px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <div style={{ fontWeight: 900, fontSize: 16 }}>🚚 {employee.name}</div>
-          <div style={{ fontSize: 11, opacity: 0.85 }}>مبيعات الكاميو</div>
+          <div style={{ fontSize: 11, opacity: 0.85 }}>التاجر المتنقل</div>
         </div>
         <button onClick={handleLogout} style={{ background: 'rgba(255,255,255,.15)', border: 'none', borderRadius: 20, padding: '7px 14px', color: 'white', fontFamily: 'inherit', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
           خروج
