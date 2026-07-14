@@ -1,7 +1,7 @@
 {
-  "name": "نقاء — مبيعات الكاميو",
-  "short_name": "نقاء كاميو",
-  "description": "تطبيق البيع المتجول للمحلات",
+  "name": "التاجر المتنقل",
+  "short_name": "تاجر متنقل",
+  "description": "التاجر المتنقل — بيع مباشر للمحلات",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#C2410C",
