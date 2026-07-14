@@ -53,7 +53,7 @@ export default function LoginScreen({ onLogin }) {
       <div style={{ background: 'white', borderRadius: 24, padding: 28, boxShadow: '0 10px 40px rgba(0,0,0,.25)' }}>
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
           <div style={{ fontSize: 48, marginBottom: 8 }}>🚚</div>
-          <h1 style={{ fontSize: 20, fontWeight: 900, color: '#C2410C' }}>نقاء — مبيعات الكاميو</h1>
+          <h1 style={{ fontSize: 20, fontWeight: 900, color: '#C2410C' }}>التاجر المتنقل — نقاء</h1>
           <p style={{ fontSize: 13, color: '#94a3b8', marginTop: 4 }}>سجّل دخولك للمتابعة</p>
         </div>
 
