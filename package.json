@@ -1,7 +1,7 @@
 {
-  "name": "naqaa-van",
+  "name": "naqaa-mobile-merchant",
   "version": "1.0.0",
-  "description": "تطبيق مبيعات الكاميو - نقاء (PWA / موبايل)",
+  "description": "التاجر المتنقل - نقاء (PWA / موبايل)",
   "private": true,
   "type": "module",
   "scripts": {
