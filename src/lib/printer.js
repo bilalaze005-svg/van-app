@@ -284,15 +284,16 @@ export async function printReceipt(sale) {
   const width = getSavedPrinterWidth()
   const imageData = renderReceiptCanvas(sale, width)
 
-  const encoderOptions = { language: connectedDevice?.language || 'esc-pos' }
-  // فقط إن كانت المكتبة نفسها قد اكتشفت ترميزاً مطابقاً لهذه الطابعة بالتحديد
-  // (عبر قاعدة بياناتها الداخلية للأجهزة المعروفة) نستخدمه؛ غير ذلك نترك
-  // المكتبة تحسب الترميز الافتراضي الصحيح المطابق للغة المكتشفة تلقائياً —
-  // فرض قيمة ثابتة هنا كان يسبب خطأ "Unknown codepage mapping" كلما لم تكن
-  // اللغة المكتشفة esc-pos تحديداً.
-  if (connectedDevice?.codepageMapping) {
-    encoderOptions.codepageMapping = connectedDevice.codepageMapping
-  }
+  // ملاحظة: لا نمرّر أبداً قيمة codepageMapping المكتشفة من مكتبة اكتشاف
+  // الطابعة — اكتشفنا أنها قد تستخدم تسمية مختلفة قليلاً عمّا تتوقعه مكتبة
+  // الترميز (تضارب توثيق بين المكتبتين)، فتُرمى "Unknown codepage mapping"
+  // رغم أن الطابعة تعمل فعلياً. بما أننا نطبع الفاتورة كصورة فقط (لا نص أبداً)،
+  // ترميز الصفحة لا يؤثر على النتيجة إطلاقاً، فنترك المكتبة تحسب قيمتها
+  // الافتراضية المضمونة دوماً بدل الاعتماد على القيمة المكتشفة.
+  const VALID_LANGUAGES = ['esc-pos', 'star-prnt', 'star-line']
+  const detectedLanguage = connectedDevice?.language
+  const safeLanguage = VALID_LANGUAGES.includes(detectedLanguage) ? detectedLanguage : 'esc-pos'
+  const encoderOptions = { language: safeLanguage }
   const encoder = new ReceiptPrinterEncoder(encoderOptions)
 
   const data = encoder
