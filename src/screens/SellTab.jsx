@@ -182,7 +182,7 @@ export default function SellTab({ employee, showToast }) {
       )}
 
       {/* شبكة المنتجات — تجربة شبيهة بمتجر نقاء */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, marginBottom: cart.length > 0 ? 320 : 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, marginBottom: cart.length > 0 ? 380 : 20 }}>
         {filtered.map(v => {
           const inCart = cartQtyFor(v.product_id)
           return (
@@ -217,7 +217,7 @@ export default function SellTab({ employee, showToast }) {
 
       {/* السلة الثابتة بالأسفل */}
       {cart.length > 0 && (
-        <div style={{ position: 'fixed', bottom: 0, right: 0, left: 0, maxWidth: 500, margin: '0 auto', background: 'white', borderRadius: '24px 24px 0 0', boxShadow: '0 -8px 30px rgba(15,23,42,.12)', padding: 18, maxHeight: '58vh', overflowY: 'auto' }}>
+        <div style={{ position: 'fixed', bottom: 0, right: 0, left: 0, maxWidth: 500, margin: '0 auto', background: 'white', borderRadius: '24px 24px 0 0', boxShadow: '0 -8px 30px rgba(15,23,42,.12)', padding: '18px 18px 96px', maxHeight: '70vh', overflowY: 'auto', zIndex: 30 }}>
           <div style={{ width: 40, height: 4, background: T.border, borderRadius: 4, margin: '0 auto 14px' }} />
           <div style={{ fontWeight: 900, fontSize: 15, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>🧾 فاتورة البيع</div>
           {cart.map(c => (

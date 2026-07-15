@@ -141,7 +141,7 @@ export default function App() {
       {tab === 'settlement' && <SettlementTab employee={employee} />}
 
       {/* شريط تنقّل سفلي */}
-      <div style={{ position: 'fixed', bottom: 14, right: 14, left: 14, maxWidth: 470, margin: '0 auto', background: 'white', borderRadius: T.radiusPill, display: 'flex', padding: 6, boxShadow: '0 10px 30px rgba(15,23,42,.14)' }}>
+      <div style={{ position: 'fixed', bottom: 14, right: 14, left: 14, maxWidth: 470, margin: '0 auto', background: 'white', borderRadius: T.radiusPill, display: 'flex', padding: 6, boxShadow: '0 10px 30px rgba(15,23,42,.14)', zIndex: 20 }}>
         {TABS.map(t => {
           const active = tab === t.id
           return (
