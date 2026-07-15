@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase.js'
 import { T, cardStyle, buttonPrimary, inputStyle } from '../lib/theme.js'
 
+const PAGE_SIZE = 30
+
 export default function LoadTab({ employee, showToast }) {
   const [search, setSearch] = useState('')
   const [products, setProducts] = useState([])
@@ -9,27 +11,34 @@ export default function LoadTab({ employee, showToast }) {
   const [loadingId, setLoadingId] = useState(null)
   const [vanStock, setVanStock] = useState([])
   const [loadingList, setLoadingList] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [hasMore, setHasMore] = useState(true)
 
-  const searchProducts = useCallback(async () => {
-    setLoadingList(true)
+  const searchProducts = useCallback(async (page = 0) => {
+    if (page === 0) setLoadingList(true); else setLoadingMore(true)
     try {
       let q = supabase.from('products').select('id,name,price,stock,sku,image').eq('disabled', false)
       if (search.trim()) {
         const like = `%${search.trim()}%`
         q = q.or(`name.ilike.${like},sku.ilike.${like}`)
       }
-      const { data, error } = await q.order(search.trim() ? 'name' : 'created_at', { ascending: !!search.trim() }).limit(30)
+      const from = page * PAGE_SIZE
+      const { data, error } = await q
+        .order(search.trim() ? 'name' : 'created_at', { ascending: !!search.trim() })
+        .range(from, from + PAGE_SIZE - 1)
       if (error) throw error
-      setProducts(data || [])
+      setProducts(prev => page === 0 ? (data || []) : [...prev, ...(data || [])])
+      setHasMore((data || []).length === PAGE_SIZE)
     } catch (e) {
       console.error('❌ خطأ البحث:', e)
     } finally {
       setLoadingList(false)
+      setLoadingMore(false)
     }
   }, [search])
 
   useEffect(() => {
-    const t = setTimeout(searchProducts, 350)
+    const t = setTimeout(() => searchProducts(0), 350)
     return () => clearTimeout(t)
   }, [searchProducts])
 
@@ -156,6 +165,13 @@ export default function LoadTab({ employee, showToast }) {
 
       {!loadingList && search.trim() && products.length === 0 && (
         <div style={{ textAlign: 'center', color: T.textFaint, padding: 30 }}>لا توجد نتائج</div>
+      )}
+
+      {!loadingList && hasMore && products.length > 0 && (
+        <button onClick={() => searchProducts(Math.floor(products.length / PAGE_SIZE))} disabled={loadingMore}
+          style={{ ...buttonPrimary, width: '100%', padding: 13, fontSize: 13, marginTop: 14, background: T.bg, color: T.textSoft, boxShadow: 'none' }}>
+          {loadingMore ? '⏳ جارِ التحميل...' : 'تحميل المزيد'}
+        </button>
       )}
     </div>
   )

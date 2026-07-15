@@ -1,7 +1,10 @@
-import { useState } from 'react'
-import { configError } from './lib/supabase.js'
+import { useState, useEffect, useCallback } from 'react'
+import { supabase, configError } from './lib/supabase.js'
 import { T } from './lib/theme.js'
 import useToast from './hooks/useToast.jsx'
+import useOnlineStatus from './hooks/useOnlineStatus.js'
+import { pendingCount, syncPendingSales } from './lib/offlineQueue.js'
+import { checkEmployeeAccess } from './lib/session.js'
 import LoginScreen from './screens/LoginScreen.jsx'
 import LoadTab from './screens/LoadTab.jsx'
 import SellTab from './screens/SellTab.jsx'
@@ -13,6 +16,62 @@ export default function App() {
   })
   const [tab, setTab] = useState('sell')
   const [showToast, ToastUI] = useToast()
+  const isOnline = useOnlineStatus()
+  const [pending, setPending] = useState(() => pendingCount())
+  const [syncing, setSyncing] = useState(false)
+
+  const runSync = useCallback(async () => {
+    if (syncing || pendingCount() === 0) return
+    setSyncing(true)
+    try {
+      const { synced, failed } = await syncPendingSales(supabase)
+      setPending(pendingCount())
+      if (synced > 0) showToast(`✅ تمت مزامنة ${synced} عملية بيع كانت معلّقة`)
+      if (failed > 0) showToast(`⚠️ ${failed} عملية بيع لم تُزامَن بعد — راجعها`, true)
+    } finally {
+      setSyncing(false)
+    }
+  }, [syncing, showToast])
+
+  // مزامنة تلقائية عند عودة الاتصال وعند فتح التطبيق
+  useEffect(() => {
+    if (isOnline) runSync()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOnline])
+
+  // تحديث عدّاد المعلّق كل مرة تتغيّر فيها السلة (بعد كل بيع جديد يُحفظ محلياً)
+  useEffect(() => {
+    const t = setInterval(() => setPending(pendingCount()), 4000)
+    return () => clearInterval(t)
+  }, [])
+
+  // ✅ تحقق دوري: هل ما زال الموظف مصرَّحًا له باستخدام التطبيق؟ لو أُلغيت
+  // صلاحيته من لوحة الإدارة، نسجّل خروجه تلقائيًا هنا بدل تركه يستخدم
+  // التطبيق حتى يسجّل خروجه بنفسه. لا نسجّل الخروج عند فشل الشبكة (فقط
+  // عند رفض صريح من الخادم) حتى لا نكسر تجربة العمل بدون إنترنت.
+  useEffect(() => {
+    if (!employee) return
+
+    const runCheck = async () => {
+      const { checked, hasAccess } = await checkEmployeeAccess(employee.id)
+      if (checked && !hasAccess) {
+        localStorage.removeItem('nq_van_employee')
+        setEmployee(null)
+        showToast('🚫 تم إلغاء صلاحية حسابك — تواصل مع الإدارة', true)
+      }
+    }
+
+    runCheck() // تحقق فوري عند فتح التطبيق
+    const interval = setInterval(runCheck, 5 * 60 * 1000) // كل 5 دقائق
+    const onVisible = () => { if (document.visibilityState === 'visible') runCheck() }
+    document.addEventListener('visibilitychange', onVisible)
+
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [employee?.id])
 
   if (configError) {
     return (
@@ -55,6 +114,26 @@ export default function App() {
           خروج
         </button>
       </div>
+
+      {/* بانر حالة الاتصال / المبيعات المعلّقة */}
+      {(!isOnline || pending > 0) && (
+        <div style={{
+          margin: '12px 16px 0', padding: '10px 14px', borderRadius: 14, fontSize: 12, fontWeight: 700,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+          background: isOnline ? '#FEF3C7' : '#FEE2E2', color: isOnline ? '#92400E' : T.danger,
+        }}>
+          <span>
+            {!isOnline && '📡 غير متصل بالإنترنت'}
+            {isOnline && pending > 0 && `🔄 ${pending} عملية بيع بانتظار المزامنة`}
+          </span>
+          {isOnline && pending > 0 && (
+            <button onClick={runSync} disabled={syncing}
+              style={{ background: 'white', border: 'none', borderRadius: T.radiusPill, padding: '5px 12px', fontSize: 11, fontWeight: 800, cursor: 'pointer', color: T.primary }}>
+              {syncing ? '⏳' : 'مزامنة الآن'}
+            </button>
+          )}
+        </div>
+      )}
 
       {/* محتوى التبويب */}
       {tab === 'sell' && <SellTab employee={employee} showToast={showToast} />}

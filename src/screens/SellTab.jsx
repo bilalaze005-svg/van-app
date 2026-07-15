@@ -1,8 +1,12 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase.js'
-import { T, cardStyle, buttonPrimary, inputStyle } from '../lib/theme.js'
+import { T, cardStyle, buttonPrimary, buttonGhost, inputStyle } from '../lib/theme.js'
+import { queueSale } from '../lib/offlineQueue.js'
+import useOnlineStatus from '../hooks/useOnlineStatus.js'
+import { printReceipt } from '../lib/printer.js'
 
 export default function SellTab({ employee, showToast }) {
+  const isOnline = useOnlineStatus()
   const [vanStock, setVanStock] = useState([])
   const [search, setSearch] = useState('')
   const [cart, setCart] = useState([]) // [{product_id, name, price, qty, maxQty}]
@@ -10,6 +14,8 @@ export default function SellTab({ employee, showToast }) {
   const [shopPhone, setShopPhone] = useState('')
   const [payMode, setPayMode] = useState('cash')
   const [saving, setSaving] = useState(false)
+  const [lastReceipt, setLastReceipt] = useState(null)
+  const [printing, setPrinting] = useState(false)
 
   const loadVanStock = useCallback(async () => {
     try {
@@ -53,51 +59,110 @@ export default function SellTab({ employee, showToast }) {
   const total = cart.reduce((s, c) => s + c.price * c.qty, 0)
 
   const completeSale = async () => {
+    if (saving) return // حماية من الضغط المزدوج قبل تفعّل الحالة بصريًا
     if (cart.length === 0) { showToast('⚠️ السلة فارغة', true); return }
     if (!shopName.trim()) { showToast('⚠️ أدخل اسم المحل', true); return }
 
     setSaving(true)
-    try {
-      for (const item of cart) {
-        const { error } = await supabase.rpc('sell_van_stock', {
-          p_employee_id: employee.id, p_product_id: item.product_id, p_qty: item.qty,
-        })
-        if (error) throw new Error(`فشل خصم ${item.name}: ${error.message}`)
-      }
+    const items = cart.map(c => ({ product_id: c.product_id, name: c.name, price: c.price, qty: c.qty }))
+    const salePayload = {
+      employee_id: employee.id,
+      items,
+      customer_name: shopName.trim(),
+      customer_phone: shopPhone.trim() || null,
+      pay_mode: payMode,
+    }
+    const receiptData = {
+      shopName: shopName.trim(),
+      shopPhone: shopPhone.trim(),
+      employeeName: employee.name,
+      date: new Date().toLocaleString('ar-DZ'),
+      items,
+      total,
+      payMode,
+    }
 
-      const items = cart.map(c => ({ product_id: c.product_id, name: c.name, quantity: c.qty, price: c.price, total: c.price * c.qty }))
-      const { error: orderErr } = await supabase.from('orders').insert({
-        customer_name: shopName.trim(),
-        customer_phone: shopPhone.trim() || null,
-        items: JSON.stringify(items),
-        total,
-        status: 'delivered',
-        pay_mode: payMode,
-        paid_amount: payMode === 'credit' ? 0 : total,
-        employee_id: employee.id,
-        confirmed_at: new Date().toISOString(),
-        confirmed_by: employee.id,
-        created_at: new Date().toISOString(),
+    const finishAsQueued = () => {
+      queueSale(salePayload)
+      // خصم تفاؤلي من المخزون المعروض محلياً حتى لا يُباع نفس الصنف
+      // مرتين قبل مزامنة هذه العملية مع الخادم
+      setVanStock(prev => prev.map(v => {
+        const sold = items.find(i => i.product_id === v.product_id)
+        return sold ? { ...v, qty: v.qty - sold.qty } : v
+      }))
+      showToast(`📡 لا يوجد اتصال — تم حفظ بيع ${shopName} محلياً وسيُرسل تلقائياً عند عودة الشبكة`, true)
+      setCart([])
+      setShopName('')
+      setShopPhone('')
+      setPayMode('cash')
+      setLastReceipt(receiptData)
+    }
+
+    // بدون اتصال أصلاً؟ لا داعي لمحاولة الشبكة، نحفظ بالطابور مباشرة
+    if (!isOnline) {
+      finishAsQueued()
+      setSaving(false)
+      return
+    }
+
+    try {
+      // ✅ نداء واحد ذرّي: يخصم كل الأصناف ويسجّل الطلب داخل معاملة
+      // واحدة بقاعدة البيانات. لو فشل أي صنف (نقص كمية مثلاً)، تتراجع
+      // كل العملية تلقائياً ولا يُخصم أي شيء ولا يُسجَّل طلب جزئي.
+      // انظر supabase/complete_van_sale.sql
+      const { error } = await supabase.rpc('complete_van_sale', {
+        p_employee_id: employee.id,
+        p_items: items,
+        p_customer_name: shopName.trim(),
+        p_customer_phone: shopPhone.trim() || null,
+        p_pay_mode: payMode,
       })
-      if (orderErr) throw orderErr
+      if (error) throw error
 
       showToast(`✅ تم تسجيل البيع لـ ${shopName} بقيمة ${total.toFixed(0)} دج`)
       setCart([])
       setShopName('')
       setShopPhone('')
       setPayMode('cash')
+      setLastReceipt(receiptData)
       loadVanStock()
     } catch (e) {
       console.error('❌ خطأ إتمام البيع:', e)
-      showToast('❌ ' + (e.message || 'فشل إتمام البيع') + ' — راجع مخزون الكاميو', true)
-      loadVanStock()
+      const isNetworkError = e?.message === 'Failed to fetch' || e?.name === 'TypeError'
+      if (isNetworkError) {
+        finishAsQueued()
+      } else {
+        showToast('❌ ' + (e.message || 'فشل إتمام البيع') + ' — لم يُخصم أي شيء من الكاميو', true)
+      }
+      // ملاحظة: بما أن complete_van_sale ذرّية، فشلها المنطقي يعني
+      // عدم حدوث أي تغيير فعلي بالخادم، فلا حاجة لإعادة تحميل المخزون
     } finally {
       setSaving(false)
     }
   }
 
+  const handlePrintLast = async () => {
+    if (!lastReceipt || printing) return
+    setPrinting(true)
+    try {
+      await printReceipt(lastReceipt)
+      showToast('✅ أُرسلت الفاتورة للطابعة')
+    } catch (e) {
+      console.error('❌ خطأ الطباعة:', e)
+      showToast('❌ ' + (e.message || 'فشلت الطباعة'), true)
+    } finally {
+      setPrinting(false)
+    }
+  }
+
   return (
     <div style={{ padding: '16px 16px 4px' }}>
+      {lastReceipt && cart.length === 0 && (
+        <button onClick={handlePrintLast} disabled={printing}
+          style={{ ...buttonGhost, width: '100%', padding: 12, fontSize: 12.5, marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+          {printing ? '⏳ جارِ الطباعة...' : `🖨️ طباعة فاتورة ${lastReceipt.shopName}`}
+        </button>
+      )}
       <div style={{ position: 'relative', marginBottom: 16 }}>
         <span style={{ position: 'absolute', right: 16, top: '50%', transform: 'translateY(-50%)', fontSize: 15, color: T.textFaint }}>🔍</span>
         <input
