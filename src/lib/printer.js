@@ -42,6 +42,9 @@ let nativeWriteInfo = null // { serviceUUID, characteristicUUID }
 
 const DEVICE_KEY = 'nq_van_printer_device'
 const WIDTH_KEY = 'nq_van_printer_width'
+const AUTOPRINT_KEY = 'nq_van_printer_autoprint'
+const COPIES_KEY = 'nq_van_printer_copies'
+const FOOTER_KEY = 'nq_van_printer_footer'
 
 let printerInstance = null
 let connectedDevice = null
@@ -57,6 +60,31 @@ export function getSavedPrinterWidth() {
 
 export function setSavedPrinterWidth(px) {
   localStorage.setItem(WIDTH_KEY, String(px))
+}
+
+export function getAutoPrint() {
+  return localStorage.getItem(AUTOPRINT_KEY) === '1'
+}
+
+export function setAutoPrint(enabled) {
+  localStorage.setItem(AUTOPRINT_KEY, enabled ? '1' : '0')
+}
+
+export function getPrintCopies() {
+  const n = parseInt(localStorage.getItem(COPIES_KEY) || '1', 10)
+  return Math.min(Math.max(n, 1), 5) // حد أقصى منطقي 5 نسخ
+}
+
+export function setPrintCopies(n) {
+  localStorage.setItem(COPIES_KEY, String(Math.min(Math.max(n, 1), 5)))
+}
+
+export function getFooterText() {
+  return localStorage.getItem(FOOTER_KEY) || 'شكراً لتعاملكم معنا'
+}
+
+export function setFooterText(text) {
+  localStorage.setItem(FOOTER_KEY, text || 'شكراً لتعاملكم معنا')
 }
 
 /**
@@ -239,7 +267,7 @@ function renderReceiptCanvas({ shopName, shopPhone, items, total, payMode, emplo
   y += 26
 
   ctx.font = '13px Arial'
-  ctx.fillText('شكراً لتعاملكم معنا', widthPx / 2, y)
+  ctx.fillText(getFooterText(), widthPx / 2, y)
 
   return ctx.getImageData(0, 0, widthPx, totalHeight)
 }
@@ -276,10 +304,14 @@ export async function printReceipt(sale) {
     .cut()
     .encode()
 
-  if (IS_NATIVE) {
-    await printNative(data)
-  } else {
-    getPrinter().print(data)
+  const copies = getPrintCopies()
+  for (let i = 0; i < copies; i++) {
+    if (IS_NATIVE) {
+      await printNative(data)
+    } else {
+      getPrinter().print(data)
+    }
+    if (i < copies - 1) await new Promise(r => setTimeout(r, 400))
   }
 }
 

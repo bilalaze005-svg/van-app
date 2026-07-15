@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase.js'
 import { T, cardStyle, buttonPrimary, buttonGhost, inputStyle } from '../lib/theme.js'
 import { queueSale } from '../lib/offlineQueue.js'
 import useOnlineStatus from '../hooks/useOnlineStatus.js'
-import { printReceipt } from '../lib/printer.js'
+import { printReceipt, getAutoPrint } from '../lib/printer.js'
 
 export default function SellTab({ employee, showToast }) {
   const isOnline = useOnlineStatus()
@@ -59,6 +59,16 @@ export default function SellTab({ employee, showToast }) {
 
   const total = cart.reduce((s, c) => s + c.price * c.qty, 0)
 
+  const autoPrintIfEnabled = (data) => {
+    if (!getAutoPrint()) return
+    printReceipt(data)
+      .then(() => showToast('🖨️ طُبعت الفاتورة تلقائياً'))
+      .catch((e) => {
+        console.error('❌ فشلت الطباعة التلقائية:', e)
+        showToast('⚠️ فشلت الطباعة التلقائية — استخدم زر الطباعة يدوياً', true)
+      })
+  }
+
   const completeSale = async () => {
     if (saving) return // حماية من الضغط المزدوج قبل تفعّل الحالة بصريًا
     if (cart.length === 0) { showToast('⚠️ السلة فارغة', true); return }
@@ -98,6 +108,7 @@ export default function SellTab({ employee, showToast }) {
       setPayMode('cash')
       setCartOpen(false)
       setLastReceipt(receiptData)
+      autoPrintIfEnabled(receiptData)
     }
 
     // بدون اتصال أصلاً؟ لا داعي لمحاولة الشبكة، نحفظ بالطابور مباشرة
@@ -128,6 +139,7 @@ export default function SellTab({ employee, showToast }) {
       setPayMode('cash')
       setLastReceipt(receiptData)
       setCartOpen(false)
+      autoPrintIfEnabled(receiptData)
     } catch (e) {
       console.error('❌ خطأ إتمام البيع:', e)
       const isNetworkError = e?.message === 'Failed to fetch' || e?.name === 'TypeError'
