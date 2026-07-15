@@ -256,10 +256,16 @@ export async function printReceipt(sale) {
   const width = getSavedPrinterWidth()
   const imageData = renderReceiptCanvas(sale, width)
 
-  const encoder = new ReceiptPrinterEncoder({
-    language: connectedDevice?.language || 'esc-pos',
-    codepageMapping: connectedDevice?.codepageMapping || 'epson',
-  })
+  const encoderOptions = { language: connectedDevice?.language || 'esc-pos' }
+  // فقط إن كانت المكتبة نفسها قد اكتشفت ترميزاً مطابقاً لهذه الطابعة بالتحديد
+  // (عبر قاعدة بياناتها الداخلية للأجهزة المعروفة) نستخدمه؛ غير ذلك نترك
+  // المكتبة تحسب الترميز الافتراضي الصحيح المطابق للغة المكتشفة تلقائياً —
+  // فرض قيمة ثابتة هنا كان يسبب خطأ "Unknown codepage mapping" كلما لم تكن
+  // اللغة المكتشفة esc-pos تحديداً.
+  if (connectedDevice?.codepageMapping) {
+    encoderOptions.codepageMapping = connectedDevice.codepageMapping
+  }
+  const encoder = new ReceiptPrinterEncoder(encoderOptions)
 
   const data = encoder
     .initialize()
