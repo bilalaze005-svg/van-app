@@ -45,23 +45,27 @@ export default function App() {
     return () => clearInterval(t)
   }, [])
 
-  // ✅ تحقق دوري: هل ما زال الموظف مصرَّحًا له باستخدام التطبيق؟ لو أُلغيت
-  // صلاحيته من لوحة الإدارة، نسجّل خروجه تلقائيًا هنا بدل تركه يستخدم
-  // التطبيق حتى يسجّل خروجه بنفسه. لا نسجّل الخروج عند فشل الشبكة (فقط
-  // عند رفض صريح من الخادم) حتى لا نكسر تجربة العمل بدون إنترنت.
+  // ⚠️ تحقق دوري: هل ما زال الموظف مصرَّحًا له باستخدام التطبيق؟
+  // مُعطَّل مؤقتاً (تسجيل خروج تلقائي) لأن استعلام check_employee_access.sql
+  // كان يخمّن اسم عمود الصلاحيات، وقد لا يطابق بنية جدولك الفعلية، مما كان
+  // يسجّل خروج الموظف خطأً فور الدخول. نكتفي الآن بتسجيل النتيجة في الكونسول
+  // فقط دون أي إجراء على المستخدم، حتى نتأكد من الشكل الصحيح للبيانات ثم
+  // نعيد تفعيل تسجيل الخروج التلقائي بأمان.
   useEffect(() => {
     if (!employee) return
 
     const runCheck = async () => {
       const { checked, hasAccess } = await checkEmployeeAccess(employee.id)
-      if (checked && !hasAccess) {
-        localStorage.removeItem('nq_van_employee')
-        setEmployee(null)
-        showToast('🚫 تم إلغاء صلاحية حسابك — تواصل مع الإدارة', true)
-      }
+      console.log('🔍 [تشخيص مؤقت] نتيجة التحقق من الصلاحية:', { checked, hasAccess })
+      // TODO: أعد تفعيل السطرين التاليين بعد التأكد من صحة بنية الصلاحيات
+      // if (checked && !hasAccess) {
+      //   localStorage.removeItem('nq_van_employee')
+      //   setEmployee(null)
+      //   showToast('🚫 تم إلغاء صلاحية حسابك — تواصل مع الإدارة', true)
+      // }
     }
 
-    runCheck() // تحقق فوري عند فتح التطبيق
+    runCheck() // تحقق فوري عند فتح التطبيق (تشخيصي فقط الآن)
     const interval = setInterval(runCheck, 5 * 60 * 1000) // كل 5 دقائق
     const onVisible = () => { if (document.visibilityState === 'visible') runCheck() }
     document.addEventListener('visibilitychange', onVisible)
