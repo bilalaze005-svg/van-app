@@ -60,7 +60,7 @@ begin
   ) values (
     trim(p_customer_name),
     nullif(trim(p_customer_phone), ''),
-    p_items::text,
+    p_items,
     v_total,
     'delivered',
     p_pay_mode,

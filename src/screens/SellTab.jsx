@@ -16,6 +16,7 @@ export default function SellTab({ employee, showToast }) {
   const [saving, setSaving] = useState(false)
   const [lastReceipt, setLastReceipt] = useState(null)
   const [printing, setPrinting] = useState(false)
+  const [cartOpen, setCartOpen] = useState(false)
 
   const loadVanStock = useCallback(async () => {
     try {
@@ -95,6 +96,7 @@ export default function SellTab({ employee, showToast }) {
       setShopName('')
       setShopPhone('')
       setPayMode('cash')
+      setCartOpen(false)
       setLastReceipt(receiptData)
     }
 
@@ -125,7 +127,7 @@ export default function SellTab({ employee, showToast }) {
       setShopPhone('')
       setPayMode('cash')
       setLastReceipt(receiptData)
-      loadVanStock()
+      setCartOpen(false)
     } catch (e) {
       console.error('❌ خطأ إتمام البيع:', e)
       const isNetworkError = e?.message === 'Failed to fetch' || e?.name === 'TypeError'
@@ -182,7 +184,7 @@ export default function SellTab({ employee, showToast }) {
       )}
 
       {/* شبكة المنتجات — تجربة شبيهة بمتجر نقاء */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, marginBottom: cart.length > 0 ? 380 : 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, marginBottom: cart.length > 0 ? 90 : 20 }}>
         {filtered.map(v => {
           const inCart = cartQtyFor(v.product_id)
           return (
@@ -215,52 +217,86 @@ export default function SellTab({ employee, showToast }) {
         })}
       </div>
 
-      {/* السلة الثابتة بالأسفل */}
-      {cart.length > 0 && (
-        <div style={{ position: 'fixed', bottom: 0, right: 0, left: 0, maxWidth: 500, margin: '0 auto', background: 'white', borderRadius: '24px 24px 0 0', boxShadow: '0 -8px 30px rgba(15,23,42,.12)', padding: '18px 18px 96px', maxHeight: '70vh', overflowY: 'auto', zIndex: 30 }}>
-          <div style={{ width: 40, height: 4, background: T.border, borderRadius: 4, margin: '0 auto 14px' }} />
-          <div style={{ fontWeight: 900, fontSize: 15, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>🧾 فاتورة البيع</div>
-          {cart.map(c => (
-            <div key={c.product_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: `1px solid ${T.border}` }}>
-              {c.image ? (
-                <img src={c.image} alt="" style={{ width: 34, height: 34, objectFit: 'cover', borderRadius: 8, flexShrink: 0 }} />
-              ) : (
-                <div style={{ width: 34, height: 34, borderRadius: 8, background: T.bg, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>📦</div>
-              )}
-              <div style={{ flex: 1, fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name}</div>
-              <button onClick={() => updateQty(c.product_id, -1)} style={{ width: 26, height: 26, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: 'white', cursor: 'pointer', fontWeight: 700 }}>−</button>
-              <span style={{ fontSize: 13, fontWeight: 800, minWidth: 18, textAlign: 'center' }}>{c.qty}</span>
-              <button onClick={() => updateQty(c.product_id, 1)} style={{ width: 26, height: 26, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: 'white', cursor: 'pointer', fontWeight: 700 }}>+</button>
-              <span style={{ fontSize: 12, fontWeight: 800, color: T.primary, minWidth: 55, textAlign: 'left' }}>{(c.price * c.qty).toFixed(0)} دج</span>
-              <button onClick={() => removeFromCart(c.product_id)} style={{ background: '#FEE2E2', color: T.danger, border: 'none', borderRadius: T.radiusSm, width: 26, height: 26, cursor: 'pointer', fontWeight: 700 }}>✕</button>
-            </div>
-          ))}
+      {/* السلة القابلة للطي */}
+      {cart.length > 0 && !cartOpen && (
+        // شريط عائم صغير — يعرض الملخص فقط، يتوسع بالضغط عليه
+        <button onClick={() => setCartOpen(true)}
+          style={{
+            position: 'fixed', bottom: 86, right: 14, left: 14, maxWidth: 470, margin: '0 auto',
+            background: T.primaryGradient, color: 'white', border: 'none', borderRadius: T.radiusPill,
+            padding: '13px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            boxShadow: '0 10px 26px rgba(234,88,12,.35)', zIndex: 25, cursor: 'pointer', fontFamily: 'inherit',
+          }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 800, fontSize: 13.5 }}>
+            <span style={{ background: 'rgba(255,255,255,.25)', borderRadius: '50%', width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900 }}>
+              {cart.reduce((s, c) => s + c.qty, 0)}
+            </span>
+            🛒 عرض السلة
+          </span>
+          <span style={{ fontWeight: 900, fontSize: 14.5 }}>{total.toFixed(0)} دج ‹</span>
+        </button>
+      )}
 
-          <input value={shopName} onChange={(e) => setShopName(e.target.value)} placeholder="🏬 اسم المحل *"
-            style={{ ...inputStyle, padding: 11, marginTop: 12, marginBottom: 8, fontSize: 13 }} />
-          <input value={shopPhone} onChange={(e) => setShopPhone(e.target.value)} placeholder="📱 هاتف المحل (اختياري)"
-            style={{ ...inputStyle, padding: 11, marginBottom: 10, fontSize: 13 }} />
+      {cart.length > 0 && cartOpen && (
+        <>
+          {/* خلفية شفافة — الضغط عليها يطوي السلة */}
+          <div onClick={() => setCartOpen(false)}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.35)', zIndex: 29 }} />
 
-          <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
-            {[{ v: 'cash', l: 'نقداً' }, { v: 'credit', l: 'آجل' }, { v: 'cheque', l: 'شيك' }].map(m => (
-              <button key={m.v} onClick={() => setPayMode(m.v)}
-                style={{ flex: 1, padding: 9, borderRadius: T.radiusSm, border: 'none', fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit',
-                  background: payMode === m.v ? T.primary : T.bg, color: payMode === m.v ? 'white' : T.textSoft, transition: 'all .15s' }}>
-                {m.l}
+          <div style={{ position: 'fixed', bottom: 0, right: 0, left: 0, maxWidth: 500, margin: '0 auto', background: 'white', borderRadius: '24px 24px 0 0', boxShadow: '0 -8px 30px rgba(15,23,42,.12)', padding: '10px 18px 96px', maxHeight: '80vh', overflowY: 'auto', zIndex: 30 }}>
+            <button onClick={() => setCartOpen(false)} aria-label="طي السلة"
+              style={{ width: '100%', background: 'none', border: 'none', padding: '6px 0 12px', cursor: 'pointer' }}>
+              <div style={{ width: 40, height: 4, background: T.border, borderRadius: 4, margin: '0 auto' }} />
+            </button>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <div style={{ fontWeight: 900, fontSize: 15, display: 'flex', alignItems: 'center', gap: 6 }}>🧾 فاتورة البيع</div>
+              <button onClick={() => setCartOpen(false)}
+                style={{ background: T.bg, border: 'none', borderRadius: T.radiusPill, padding: '6px 14px', fontSize: 12, fontWeight: 800, color: T.textSoft, cursor: 'pointer' }}>
+                طي ▾
               </button>
+            </div>
+            {cart.map(c => (
+              <div key={c.product_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: `1px solid ${T.border}` }}>
+                {c.image ? (
+                  <img src={c.image} alt="" style={{ width: 34, height: 34, objectFit: 'cover', borderRadius: 8, flexShrink: 0 }} />
+                ) : (
+                  <div style={{ width: 34, height: 34, borderRadius: 8, background: T.bg, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>📦</div>
+                )}
+                <div style={{ flex: 1, fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name}</div>
+                <button onClick={() => updateQty(c.product_id, -1)} style={{ width: 26, height: 26, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: 'white', cursor: 'pointer', fontWeight: 700 }}>−</button>
+                <span style={{ fontSize: 13, fontWeight: 800, minWidth: 18, textAlign: 'center' }}>{c.qty}</span>
+                <button onClick={() => updateQty(c.product_id, 1)} style={{ width: 26, height: 26, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: 'white', cursor: 'pointer', fontWeight: 700 }}>+</button>
+                <span style={{ fontSize: 12, fontWeight: 800, color: T.primary, minWidth: 55, textAlign: 'left' }}>{(c.price * c.qty).toFixed(0)} دج</span>
+                <button onClick={() => removeFromCart(c.product_id)} style={{ background: '#FEE2E2', color: T.danger, border: 'none', borderRadius: T.radiusSm, width: 26, height: 26, cursor: 'pointer', fontWeight: 700 }}>✕</button>
+              </div>
             ))}
-          </div>
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 900, fontSize: 17, marginBottom: 12 }}>
-            <span style={{ color: T.textSoft, fontSize: 13, alignSelf: 'center' }}>الإجمالي</span>
-            <span style={{ color: T.primary }}>{total.toFixed(0)} دج</span>
-          </div>
+            <input value={shopName} onChange={(e) => setShopName(e.target.value)} placeholder="🏬 اسم المحل *"
+              style={{ ...inputStyle, padding: 11, marginTop: 12, marginBottom: 8, fontSize: 13 }} />
+            <input value={shopPhone} onChange={(e) => setShopPhone(e.target.value)} placeholder="📱 هاتف المحل (اختياري)"
+              style={{ ...inputStyle, padding: 11, marginBottom: 10, fontSize: 13 }} />
 
-          <button disabled={saving} onClick={completeSale}
-            style={{ ...buttonPrimary, width: '100%', padding: 15, fontSize: 15, background: saving ? T.textFaint : T.primaryGradient }}>
-            {saving ? '⏳ جارِ الحفظ...' : '✅ إتمام البيع'}
-          </button>
-        </div>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+              {[{ v: 'cash', l: 'نقداً' }, { v: 'credit', l: 'آجل' }, { v: 'cheque', l: 'شيك' }].map(m => (
+                <button key={m.v} onClick={() => setPayMode(m.v)}
+                  style={{ flex: 1, padding: 9, borderRadius: T.radiusSm, border: 'none', fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit',
+                    background: payMode === m.v ? T.primary : T.bg, color: payMode === m.v ? 'white' : T.textSoft, transition: 'all .15s' }}>
+                  {m.l}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 900, fontSize: 17, marginBottom: 12 }}>
+              <span style={{ color: T.textSoft, fontSize: 13, alignSelf: 'center' }}>الإجمالي</span>
+              <span style={{ color: T.primary }}>{total.toFixed(0)} دج</span>
+            </div>
+
+            <button disabled={saving} onClick={completeSale}
+              style={{ ...buttonPrimary, width: '100%', padding: 15, fontSize: 15, background: saving ? T.textFaint : T.primaryGradient }}>
+              {saving ? '⏳ جارِ الحفظ...' : '✅ إتمام البيع'}
+            </button>
+          </div>
+        </>
       )}
     </div>
   )
