@@ -1,44 +1,36 @@
 /**
  * @file printer.js
- * @description طباعة فاتورة على طابعة حرارية 80مم متصلة عبر Bluetooth، باستخدام
- * متصفح Chrome على أندرويد (Web Bluetooth API).
+ * @description طباعة فاتورة على طابعة حرارية 80مم متصلة عبر Bluetooth Low Energy (BLE).
  *
- * ⚠️ قيود مهمة يجب معرفتها:
- * 1. Web Bluetooth يعمل فقط على Chrome/Edge (أندرويد أو كمبيوتر) — لا يعمل
- *    إطلاقاً على Safari/iOS. إن كان هاتف الموظف آيفون، هذه الميزة لن تظهر.
- * 2. أغلب طابعات الـ 80مم الرخيصة الشائعة (الصينية) تحتوي شريحة تدعم كلاً من
- *    Bluetooth Classic (SPP) و BLE في نفس الوقت — لكن Web Bluetooth يتحدث
- *    فقط مع BLE. لو كانت طابعتك قديمة جداً وتدعم SPP فقط، لن تظهر في قائمة
- *    الاقتران من داخل المتصفح (لكن ستظهر عادة في إعدادات بلوتوث النظام).
- * 3. نطبع الفاتورة كـ"صورة" وليس كنص، لضمان ظهور العربية بشكل صحيح دائماً —
- *    لأن أغلب هذه الطابعات لا تدعم خط عربي أو ترميز UTF-8 عند الطباعة كنص،
- *    لكنها كلها تدعم طباعة الصور بالأبيض والأسود (نقطة بنقطة).
+ * هذا الملف أُعيدت كتابته بالكامل لاستخدام أوامر ESC/POS الخام مباشرة، بدل
+ * مكتبتَي @point-of-sale/webbluetooth-receipt-printer و
+ * @point-of-sale/receipt-printer-encoder اللتين كانتا تسببان أخطاء
+ * "Unknown codepage mapping" بسبب تضارب تسمية داخلي بين المكتبتين نفسهما.
+ * هذه الطريقة (raster bitmap + أوامر ESC/POS يدوية) هي نفسها المُثبَتة نجاحها
+ * فعلياً في مشروع "naqaa-confirm-app" الشقيق.
  *
- * كيف تتحقق أنها تعمل فعلياً معك:
- * - افتح التطبيق على هاتف أندرويد بمتصفح Chrome (وليس تطبيق مثبّت من متجر آخر)
- * - فعّل بلوتوث الهاتف وشغّل الطابعة واتركها بجانب الهاتف
- * - اضغط "اختبار الطباعة" بالأسفل، اختر طابعتك من القائمة التي يعرضها المتصفح
- * - إن ظهرت رسالة خطأ، انسخها وأرسلها لي لأعرف بالضبط أين المشكلة
+ * قيود مهمة:
+ * 1. الطابعة يجب أن تكون BLE. لو طابعتك Bluetooth Classic (SPP) فقط، هذا
+ *    الجسر لن يتصل بها — يحتاج كود Android أصلي مختلف تمامًا.
+ * 2. داخل تطبيق أندرويد (Capacitor)، نستخدم @capacitor-community/bluetooth-le.
+ *    داخل متصفح عادي، نستخدم Web Bluetooth (navigator.bluetooth) مباشرة —
+ *    ولا يعمل إطلاقاً داخل WebView تطبيق أندرويد ولا على iOS/Safari.
+ * 3. النص العربي يُرسل كصورة (raster bitmap) لأن أغلب الطابعات الرخيصة لا
+ *    تدعم ترميز UTF-8/العربي بجداولها الداخلية.
  */
 
-import WebBluetoothReceiptPrinter from '@point-of-sale/webbluetooth-receipt-printer'
-import ReceiptPrinterEncoder from '@point-of-sale/receipt-printer-encoder'
 import { Capacitor } from '@capacitor/core'
 import { BleClient } from '@capacitor-community/bluetooth-le'
 
-// هل نعمل داخل تطبيق أندرويد الأصلي (Capacitor) أم داخل متصفح عادي؟
-// Web Bluetooth لا يعمل إطلاقاً داخل WebView تطبيق أندرويد، لذلك نستخدم
-// مسارين مختلفين للاتصال بالطابعة حسب البيئة.
 const IS_NATIVE = Capacitor.isNativePlatform()
 
-// خدمة/خاصية شائعة جداً في طابعات الـ80مم الصينية الرخيصة عبر BLE.
-// نجربها أولاً؛ ولو لم تكن موجودة، نبحث تلقائياً عن أي خاصية قابلة للكتابة.
-const COMMON_PRINTER_SERVICE = '0000ff00-0000-1000-8000-00805f9b34fb'
-const COMMON_PRINTER_WRITE_CHAR = '0000ff02-0000-1000-8000-00805f9b34fb'
-const BLE_CHUNK_SIZE = 180 // حجم آمن لكل دفعة كتابة عبر BLE (حدود MTU الافتراضية)
+const CANDIDATE_SERVICES = [
+  { service: '000018f0-0000-1000-8000-00805f9b34fb', writeChar: '00002af1-0000-1000-8000-00805f9b34fb' },
+  { service: '0000ffe0-0000-1000-8000-00805f9b34fb', writeChar: '0000ffe1-0000-1000-8000-00805f9b34fb' },
+  { service: '0000ff00-0000-1000-8000-00805f9b34fb', writeChar: '0000ff02-0000-1000-8000-00805f9b34fb' },
+]
 
-let nativeDeviceId = null
-let nativeWriteInfo = null // { serviceUUID, characteristicUUID }
+const BLE_CHUNK_SIZE = 180
 
 const DEVICE_KEY = 'nq_van_printer_device'
 const WIDTH_KEY = 'nq_van_printer_width'
@@ -46,18 +38,20 @@ const AUTOPRINT_KEY = 'nq_van_printer_autoprint'
 const COPIES_KEY = 'nq_van_printer_copies'
 const FOOTER_KEY = 'nq_van_printer_footer'
 
-let printerInstance = null
+let nativeInitialized = false
+let deviceId = null
+let matchedService = null
 let connectedDevice = null
+let browserGattChar = null
 
 export function isBluetoothSupported() {
-  if (IS_NATIVE) return true // على أندرويد الأصلي، BLE متاح دوماً عبر الإضافة
+  if (IS_NATIVE) return true
   return typeof navigator !== 'undefined' && !!navigator.bluetooth
 }
 
 export function getSavedPrinterWidth() {
   return parseInt(localStorage.getItem(WIDTH_KEY) || '384', 10)
 }
-
 export function setSavedPrinterWidth(px) {
   localStorage.setItem(WIDTH_KEY, String(px))
 }
@@ -65,16 +59,14 @@ export function setSavedPrinterWidth(px) {
 export function getAutoPrint() {
   return localStorage.getItem(AUTOPRINT_KEY) === '1'
 }
-
 export function setAutoPrint(enabled) {
   localStorage.setItem(AUTOPRINT_KEY, enabled ? '1' : '0')
 }
 
 export function getPrintCopies() {
   const n = parseInt(localStorage.getItem(COPIES_KEY) || '1', 10)
-  return Math.min(Math.max(n, 1), 5) // حد أقصى منطقي 5 نسخ
+  return Math.min(Math.max(n, 1), 5)
 }
-
 export function setPrintCopies(n) {
   localStorage.setItem(COPIES_KEY, String(Math.min(Math.max(n, 1), 5)))
 }
@@ -82,24 +74,33 @@ export function setPrintCopies(n) {
 export function getFooterText() {
   return localStorage.getItem(FOOTER_KEY) || 'شكراً لتعاملكم معنا'
 }
-
 export function setFooterText(text) {
   localStorage.setItem(FOOTER_KEY, text || 'شكراً لتعاملكم معنا')
 }
 
-/**
- * يبحث بين كل خدمات الجهاز عن أول خاصية قابلة للكتابة (write أو
- * writeWithoutResponse)، متجاوزاً خدمات GATT القياسية العامة (معلومات
- * الجهاز، البطارية...) التي لا علاقة لها بالطباعة.
- */
-function findWritableCharacteristic(services) {
-  const ignoredServices = ['1800', '1801', '180a', '180f']
-  for (const service of services) {
-    const shortId = service.uuid.slice(4, 8).toLowerCase()
-    if (ignoredServices.includes(shortId)) continue
-    for (const char of service.characteristics || []) {
-      if (char.properties?.write || char.properties?.writeWithoutResponse) {
-        return { serviceUUID: service.uuid, characteristicUUID: char.uuid }
+export function getConnectedDevice() {
+  return connectedDevice
+}
+
+export function isConnected() {
+  return !!deviceId && !!matchedService
+}
+
+function findMatchingService(services) {
+  for (const candidate of CANDIDATE_SERVICES) {
+    const svc = services.find(s => s.uuid.toLowerCase() === candidate.service.toLowerCase())
+    const ch = svc?.characteristics?.find(c => c.uuid.toLowerCase() === candidate.writeChar.toLowerCase())
+    if (ch && (ch.properties?.write || ch.properties?.writeWithoutResponse)) {
+      return { ...candidate, useWriteWithoutResponse: !!ch.properties.writeWithoutResponse }
+    }
+  }
+  const ignored = ['1800', '1801', '180a', '180f']
+  for (const svc of services) {
+    const shortId = svc.uuid.slice(4, 8).toLowerCase()
+    if (ignored.includes(shortId)) continue
+    for (const ch of svc.characteristics || []) {
+      if (ch.properties?.write || ch.properties?.writeWithoutResponse) {
+        return { service: svc.uuid, writeChar: ch.uuid, useWriteWithoutResponse: !!ch.properties.writeWithoutResponse }
       }
     }
   }
@@ -107,104 +108,97 @@ function findWritableCharacteristic(services) {
 }
 
 async function connectNative() {
-  await BleClient.initialize()
-  // يفتح نافذة اختيار جهاز BLE من نظام أندرويد نفسه
-  const device = await BleClient.requestDevice({ acceptAllDevices: true })
-  await BleClient.connect(device.deviceId)
-  nativeDeviceId = device.deviceId
+  if (!nativeInitialized) {
+    await BleClient.initialize({ androidNeverForLocation: true })
+    nativeInitialized = true
+  }
+  const device = await BleClient.requestDevice({ optionalServices: CANDIDATE_SERVICES.map(c => c.service) })
+  await BleClient.connect(device.deviceId, () => { deviceId = null; matchedService = null; connectedDevice = null })
+  deviceId = device.deviceId
 
   const services = await BleClient.getServices(device.deviceId)
-  // نجرب أولاً الخدمة الشائعة، وإلا نبحث تلقائياً
-  const commonMatch = services.find(s => s.uuid.toLowerCase() === COMMON_PRINTER_SERVICE)
-  nativeWriteInfo = commonMatch
-    ? { serviceUUID: COMMON_PRINTER_SERVICE, characteristicUUID: COMMON_PRINTER_WRITE_CHAR }
-    : findWritableCharacteristic(services)
-
-  if (!nativeWriteInfo) {
-    throw new Error('لم يُعثر على خاصية كتابة صالحة بهذا الجهاز — قد لا تكون طابعة، أو تحتاج تهيئة يدوية')
+  matchedService = findMatchingService(services)
+  if (!matchedService) {
+    await BleClient.disconnect(device.deviceId)
+    deviceId = null
+    throw new Error('تم الاتصال بالجهاز لكن لم يُعثر على خدمة طباعة معروفة — أرسل لي موديل طابعتك بالضبط لأضيف معرّفها')
   }
 
-  connectedDevice = { id: device.deviceId, name: device.name || 'طابعة بلوتوث' }
+  connectedDevice = { name: device.name || 'طابعة بدون اسم' }
   localStorage.setItem(DEVICE_KEY, JSON.stringify(connectedDevice))
   return connectedDevice
 }
 
-async function printNative(bytes) {
-  if (!nativeDeviceId || !nativeWriteInfo) {
-    throw new Error('لا يوجد اتصال بالطابعة بعد')
+async function connectBrowser() {
+  const device = await navigator.bluetooth.requestDevice({
+    acceptAllDevices: true,
+    optionalServices: CANDIDATE_SERVICES.map(c => c.service),
+  })
+  const server = await device.gatt.connect()
+
+  for (const candidate of CANDIDATE_SERVICES) {
+    try {
+      const service = await server.getPrimaryService(candidate.service)
+      const char = await service.getCharacteristic(candidate.writeChar)
+      matchedService = { ...candidate, useWriteWithoutResponse: char.properties?.writeWithoutResponse }
+      browserGattChar = char
+      deviceId = device.id
+      connectedDevice = { name: device.name || 'طابعة بدون اسم' }
+      localStorage.setItem(DEVICE_KEY, JSON.stringify(connectedDevice))
+      device.addEventListener('gattserverdisconnected', () => {
+        deviceId = null; matchedService = null; connectedDevice = null; browserGattChar = null
+      })
+      return connectedDevice
+    } catch {
+      // هذه الخدمة غير موجودة بهذا الجهاز، جرّب المرشّح التالي
+    }
   }
-  // نرسل البيانات على دفعات صغيرة لتفادي حدود MTU الافتراضية لـ BLE
-  for (let i = 0; i < bytes.length; i += BLE_CHUNK_SIZE) {
-    const chunk = bytes.slice(i, i + BLE_CHUNK_SIZE)
-    const dataView = new DataView(chunk.buffer, chunk.byteOffset, chunk.byteLength)
-    await BleClient.writeWithoutResponse(
-      nativeDeviceId, nativeWriteInfo.serviceUUID, nativeWriteInfo.characteristicUUID, dataView
-    )
-    // مهلة قصيرة بين الدفعات حتى لا تُغرق الطابعة الرخيصة ذات المخزن المؤقت الصغير
-    await new Promise(r => setTimeout(r, 15))
-  }
+
+  throw new Error('تم الاتصال بالجهاز لكن لم يُعثر على خدمة طباعة معروفة — أرسل لي موديل طابعتك بالضبط لأضيف معرّفها')
 }
 
-function getPrinter() {
-  if (!printerInstance) {
-    printerInstance = new WebBluetoothReceiptPrinter()
-    printerInstance.addEventListener('connected', (device) => {
-      connectedDevice = device
-      localStorage.setItem(DEVICE_KEY, JSON.stringify({ id: device.id, name: device.name }))
-    })
-    printerInstance.addEventListener('disconnected', () => {
-      connectedDevice = null
-    })
-  }
-  return printerInstance
-}
-
-export function getConnectedDevice() {
-  return connectedDevice
-}
-
-/**
- * يفتح نافذة اختيار جهاز بلوتوث من المتصفح (يجب استدعاؤها من onClick مباشرة،
- * وليس من داخل async منفصل بعد await، وإلا يرفضها المتصفح).
- */
 export async function connectPrinter() {
-  if (IS_NATIVE) {
-    return connectNative()
-  }
+  if (IS_NATIVE) return connectNative()
   if (!isBluetoothSupported()) {
     throw new Error('هذا المتصفح لا يدعم Web Bluetooth. جرّب Chrome على أندرويد.')
   }
-  const printer = getPrinter()
-  await printer.connect()
-  // الحدث 'connected' يُطلَق داخلياً عبر setTimeout؛ ننتظر لحظة قصيرة
-  // لضمان تحديث connectedDevice قبل استخدامه
-  await new Promise(resolve => setTimeout(resolve, 50))
-  if (!connectedDevice) {
-    throw new Error('تعذّر الاتصال بالطابعة — تأكد أنها مُشغّلة وقريبة من الهاتف وحاول مجدداً')
-  }
-  return connectedDevice
+  return connectBrowser()
 }
 
-/**
- * يرسم إيصال البيع على canvas (نص عربي RTL) ثم يحوّله لصورة نقطية—هذا يضمن
- * ظهور العربية بشكل صحيح بغض النظر عن دعم الطابعة للترميز العربي.
- */
+async function writeBytes(bytes) {
+  for (let i = 0; i < bytes.length; i += BLE_CHUNK_SIZE) {
+    const chunk = bytes.slice(i, i + BLE_CHUNK_SIZE)
+    const dataView = new DataView(chunk.buffer, chunk.byteOffset, chunk.byteLength)
+    if (IS_NATIVE) {
+      if (matchedService.useWriteWithoutResponse) {
+        await BleClient.writeWithoutResponse(deviceId, matchedService.service, matchedService.writeChar, dataView)
+      } else {
+        await BleClient.write(deviceId, matchedService.service, matchedService.writeChar, dataView)
+      }
+    } else {
+      if (matchedService.useWriteWithoutResponse) {
+        await browserGattChar.writeValueWithoutResponse(dataView)
+      } else {
+        await browserGattChar.writeValueWithResponse(dataView)
+      }
+    }
+    await new Promise(r => setTimeout(r, 12))
+  }
+}
+
 function renderReceiptCanvas({ shopName, shopPhone, items, total, payMode, employeeName, date }, widthPx) {
   const padding = 10
   const lineHeight = 30
   const headerHeight = 110
   const footerHeight = 70
   const bodyHeight = items.length * lineHeight
-  const rawHeight = headerHeight + bodyHeight + footerHeight
-  // ‎.image() يشترط أن يكون الطول مضاعفاً للرقم 8
-  const totalHeight = Math.ceil(rawHeight / 8) * 8
+  const totalHeight = headerHeight + bodyHeight + footerHeight
 
   const canvas = document.createElement('canvas')
   canvas.width = widthPx
   canvas.height = totalHeight
   const ctx = canvas.getContext('2d')
 
-  // خلفية بيضاء
   ctx.fillStyle = '#fff'
   ctx.fillRect(0, 0, canvas.width, canvas.height)
   ctx.fillStyle = '#000'
@@ -232,7 +226,6 @@ function renderReceiptCanvas({ shopName, shopPhone, items, total, payMode, emplo
     y += 22
   }
 
-  // خط فاصل
   ctx.beginPath()
   ctx.moveTo(padding, y)
   ctx.lineTo(widthPx - padding, y)
@@ -269,49 +262,57 @@ function renderReceiptCanvas({ shopName, shopPhone, items, total, payMode, emplo
   ctx.font = '13px Arial'
   ctx.fillText(getFooterText(), widthPx / 2, y)
 
-  return ctx.getImageData(0, 0, widthPx, totalHeight)
+  return canvas
 }
 
-/**
- * يطبع فاتورة بيع حقيقية أو فاتورة اختبار.
- * @param {object} sale بيانات الفاتورة
- */
-export async function printReceipt(sale) {
-  if (!connectedDevice) {
-    await connectPrinter()
+function canvasToEscposRaster(canvas) {
+  const ctx = canvas.getContext('2d')
+  const { width, height } = canvas
+  const imgData = ctx.getImageData(0, 0, width, height).data
+  const bytesPerRow = Math.ceil(width / 8)
+  const raster = new Uint8Array(bytesPerRow * height)
+
+  for (let yy = 0; yy < height; yy++) {
+    for (let xx = 0; xx < width; xx++) {
+      const idx = (yy * width + xx) * 4
+      const gray = (imgData[idx] + imgData[idx + 1] + imgData[idx + 2]) / 3
+      const isBlack = gray < 160
+      if (isBlack) {
+        raster[yy * bytesPerRow + (xx >> 3)] |= 0x80 >> (xx % 8)
+      }
+    }
   }
 
+  const header = new Uint8Array([
+    0x1d, 0x76, 0x30, 0x00,
+    bytesPerRow & 0xff, (bytesPerRow >> 8) & 0xff,
+    height & 0xff, (height >> 8) & 0xff,
+  ])
+
+  const out = new Uint8Array(header.length + raster.length)
+  out.set(header, 0)
+  out.set(raster, header.length)
+  return out
+}
+
+async function printOnce(sale) {
   const width = getSavedPrinterWidth()
-  const imageData = renderReceiptCanvas(sale, width)
+  const canvas = renderReceiptCanvas(sale, width)
+  const raster = canvasToEscposRaster(canvas)
+  const init = new Uint8Array([0x1b, 0x40])
+  const feed = new Uint8Array([0x0a, 0x0a, 0x0a, 0x0a])
+  await writeBytes(init)
+  await writeBytes(raster)
+  await writeBytes(feed)
+}
 
-  // ملاحظة: لا نمرّر أبداً قيمة codepageMapping المكتشفة من مكتبة اكتشاف
-  // الطابعة — اكتشفنا أنها قد تستخدم تسمية مختلفة قليلاً عمّا تتوقعه مكتبة
-  // الترميز (تضارب توثيق بين المكتبتين)، فتُرمى "Unknown codepage mapping"
-  // رغم أن الطابعة تعمل فعلياً. بما أننا نطبع الفاتورة كصورة فقط (لا نص أبداً)،
-  // ترميز الصفحة لا يؤثر على النتيجة إطلاقاً، فنترك المكتبة تحسب قيمتها
-  // الافتراضية المضمونة دوماً بدل الاعتماد على القيمة المكتشفة.
-  const VALID_LANGUAGES = ['esc-pos', 'star-prnt', 'star-line']
-  const detectedLanguage = connectedDevice?.language
-  const safeLanguage = VALID_LANGUAGES.includes(detectedLanguage) ? detectedLanguage : 'esc-pos'
-  const encoderOptions = { language: safeLanguage }
-  const encoder = new ReceiptPrinterEncoder(encoderOptions)
-
-  const data = encoder
-    .initialize()
-    .align('center')
-    .image(imageData, width, imageData.height, 'threshold')
-    .newline()
-    .newline()
-    .cut()
-    .encode()
-
+export async function printReceipt(sale) {
+  if (!isConnected()) {
+    await connectPrinter()
+  }
   const copies = getPrintCopies()
   for (let i = 0; i < copies; i++) {
-    if (IS_NATIVE) {
-      await printNative(data)
-    } else {
-      getPrinter().print(data)
-    }
+    await printOnce(sale)
     if (i < copies - 1) await new Promise(r => setTimeout(r, 400))
   }
 }

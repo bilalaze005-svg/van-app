@@ -13,8 +13,6 @@
     "@capacitor-community/bluetooth-le": "^8.2.0",
     "@capacitor/android": "^8.4.2",
     "@capacitor/core": "^8.4.2",
-    "@point-of-sale/receipt-printer-encoder": "^3.0.3",
-    "@point-of-sale/webbluetooth-receipt-printer": "^2.0.0",
     "@supabase/supabase-js": "^2.47.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
