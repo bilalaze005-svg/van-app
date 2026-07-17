@@ -17,7 +17,7 @@ export default function LoadTab({ employee, showToast }) {
   const searchProducts = useCallback(async (page = 0) => {
     if (page === 0) setLoadingList(true); else setLoadingMore(true)
     try {
-      let q = supabase.from('products').select('id,name,price,stock,sku,image').eq('disabled', false)
+      let q = supabase.from('products').select('id,name,price,stock,sku,image').eq('disabled', false).gt('stock', 0)
       if (search.trim()) {
         const like = `%${search.trim()}%`
         q = q.or(`name.ilike.${like},sku.ilike.${like}`)

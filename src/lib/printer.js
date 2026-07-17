@@ -37,12 +37,14 @@ const WIDTH_KEY = 'nq_van_printer_width'
 const AUTOPRINT_KEY = 'nq_van_printer_autoprint'
 const COPIES_KEY = 'nq_van_printer_copies'
 const FOOTER_KEY = 'nq_van_printer_footer'
+const FONT_SCALE_KEY = 'nq_van_printer_font_scale'
 
 let nativeInitialized = false
 let deviceId = null
 let matchedService = null
 let connectedDevice = null
 let browserGattChar = null
+let browserDevice = null
 
 export function isBluetoothSupported() {
   if (IS_NATIVE) return true
@@ -76,6 +78,14 @@ export function getFooterText() {
 }
 export function setFooterText(text) {
   localStorage.setItem(FOOTER_KEY, text || 'شكراً لتعاملكم معنا')
+}
+
+// مقياس حجم الخط: 0.85 صغير / 1 متوسط (افتراضي) / 1.2 كبير
+export function getFontScale() {
+  return parseFloat(localStorage.getItem(FONT_SCALE_KEY) || '1')
+}
+export function setFontScale(scale) {
+  localStorage.setItem(FONT_SCALE_KEY, String(scale))
 }
 
 export function getConnectedDevice() {
@@ -142,6 +152,7 @@ async function connectBrowser() {
       const char = await service.getCharacteristic(candidate.writeChar)
       matchedService = { ...candidate, useWriteWithoutResponse: char.properties?.writeWithoutResponse }
       browserGattChar = char
+      browserDevice = device
       deviceId = device.id
       connectedDevice = { name: device.name || 'طابعة بدون اسم' }
       localStorage.setItem(DEVICE_KEY, JSON.stringify(connectedDevice))
@@ -163,6 +174,23 @@ export async function connectPrinter() {
     throw new Error('هذا المتصفح لا يدعم Web Bluetooth. جرّب Chrome على أندرويد.')
   }
   return connectBrowser()
+}
+
+export async function disconnectPrinter() {
+  try {
+    if (IS_NATIVE && deviceId) {
+      await BleClient.disconnect(deviceId)
+    } else if (browserDevice?.gatt?.connected) {
+      browserDevice.gatt.disconnect()
+    }
+  } finally {
+    deviceId = null
+    matchedService = null
+    connectedDevice = null
+    browserGattChar = null
+    browserDevice = null
+    localStorage.removeItem(DEVICE_KEY)
+  }
 }
 
 async function writeBytes(bytes) {
@@ -187,10 +215,13 @@ async function writeBytes(bytes) {
 }
 
 function renderReceiptCanvas({ shopName, shopPhone, items, total, payMode, employeeName, date }, widthPx) {
+  const s = getFontScale() // 0.85 صغير / 1 متوسط / 1.2 كبير
+  const f = (px) => Math.round(px * s) // يحسب حجم الخط الفعلي بعد المقياس
+
   const padding = 10
-  const lineHeight = 30
-  const headerHeight = 110
-  const footerHeight = 70
+  const lineHeight = Math.round(30 * s)
+  const headerHeight = Math.round(110 * s)
+  const footerHeight = Math.round(70 * s)
   const bodyHeight = items.length * lineHeight
   const totalHeight = headerHeight + bodyHeight + footerHeight
 
@@ -205,25 +236,25 @@ function renderReceiptCanvas({ shopName, shopPhone, items, total, payMode, emplo
   ctx.direction = 'rtl'
   ctx.textAlign = 'center'
 
-  let y = 30
-  ctx.font = 'bold 24px Arial'
+  let y = Math.round(30 * s)
+  ctx.font = `bold ${f(24)}px Arial`
   ctx.fillText('التاجر المتنقل — نقاء', widthPx / 2, y)
-  y += 28
+  y += Math.round(28 * s)
 
-  ctx.font = '16px Arial'
+  ctx.font = `${f(16)}px Arial`
   ctx.fillText(`الموظف: ${employeeName}`, widthPx / 2, y)
-  y += 22
+  y += Math.round(22 * s)
   ctx.fillText(date, widthPx / 2, y)
-  y += 26
+  y += Math.round(26 * s)
 
   ctx.textAlign = 'right'
-  ctx.font = 'bold 18px Arial'
+  ctx.font = `bold ${f(18)}px Arial`
   ctx.fillText(`المحل: ${shopName}`, widthPx - padding, y)
-  y += 22
+  y += Math.round(22 * s)
   if (shopPhone) {
-    ctx.font = '15px Arial'
+    ctx.font = `${f(15)}px Arial`
     ctx.fillText(`الهاتف: ${shopPhone}`, widthPx - padding, y)
-    y += 22
+    y += Math.round(22 * s)
   }
 
   ctx.beginPath()
@@ -231,9 +262,9 @@ function renderReceiptCanvas({ shopName, shopPhone, items, total, payMode, emplo
   ctx.lineTo(widthPx - padding, y)
   ctx.lineWidth = 1
   ctx.stroke()
-  y += 20
+  y += Math.round(20 * s)
 
-  ctx.font = '16px Arial'
+  ctx.font = `${f(16)}px Arial`
   for (const it of items) {
     const lineTotal = (it.price * it.qty).toFixed(0)
     ctx.textAlign = 'right'
@@ -247,19 +278,19 @@ function renderReceiptCanvas({ shopName, shopPhone, items, total, payMode, emplo
   ctx.moveTo(padding, y)
   ctx.lineTo(widthPx - padding, y)
   ctx.stroke()
-  y += 26
+  y += Math.round(26 * s)
 
   ctx.textAlign = 'center'
-  ctx.font = 'bold 22px Arial'
+  ctx.font = `bold ${f(22)}px Arial`
   ctx.fillText(`الإجمالي: ${total.toFixed(0)} دج`, widthPx / 2, y)
-  y += 26
+  y += Math.round(26 * s)
 
-  ctx.font = '15px Arial'
+  ctx.font = `${f(15)}px Arial`
   const modeLabel = { cash: 'نقداً', credit: 'آجل', cheque: 'شيك', transfer: 'تحويل' }
   ctx.fillText(`طريقة الدفع: ${modeLabel[payMode] || payMode}`, widthPx / 2, y)
-  y += 26
+  y += Math.round(26 * s)
 
-  ctx.font = '13px Arial'
+  ctx.font = `${f(13)}px Arial`
   ctx.fillText(getFooterText(), widthPx / 2, y)
 
   return canvas

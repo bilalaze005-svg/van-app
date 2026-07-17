@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase.js'
 import { T, cardStyle, buttonGhost } from '../lib/theme.js'
-import PrinterPanel from './PrinterPanel.jsx'
 
 const PERIODS = {
   day: { label: 'اليوم', getStart: () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d } },
@@ -53,7 +52,6 @@ export default function SettlementTab({ employee }) {
 
   return (
     <div style={{ padding: 16 }}>
-      <PrinterPanel />
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
         {Object.entries(PERIODS).map(([key, p]) => (

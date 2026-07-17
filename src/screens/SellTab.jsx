@@ -30,7 +30,9 @@ export default function SellTab({ employee, showToast }) {
 
   useEffect(() => { loadVanStock() }, [loadVanStock])
 
-  const filtered = vanStock.filter(v => !search.trim() || v.name.toLowerCase().includes(search.trim().toLowerCase()))
+  const filtered = vanStock
+    .filter(v => Number(v.qty) > 0)
+    .filter(v => !search.trim() || v.name.toLowerCase().includes(search.trim().toLowerCase()))
 
   const addToCart = (item) => {
     setCart(prev => {
