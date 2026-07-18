@@ -1,48 +1,50 @@
 /**
  * @file otp.js
- * @description منطق إرسال والتحقق من رمز التحقق الثنائي (OTP) عند تسجيل الدخول.
+ * @description طبقة التحقق بخطوتين (2FA) — تستعمل الآن Supabase Auth الحقيقي
+ * لإرسال والتحقق من كود عبر البريد الإلكتروني، بعد إعداد SMTP مخصص (Resend)
+ * بلوحة Supabase → Authentication → Email → SMTP Settings.
  *
- * ⚠️ الوضع الحالي: الكود ثابت دائماً "1234" ولا تُرسَل أي رسالة فعلية —
- * هذا فقط لتفعيل شاشة التحقق وتجربتها قبل ربط خدمة SMS حقيقية.
+ * ⚠️ ملاحظة مهمة: هذا لا يُنشئ "جلسة دخول" حقيقية بالتطبيق (الدخول الفعلي
+ * يتم عبر verify_employee_login المخصصة، كما كان). نستخدم هنا آلية Supabase
+ * Auth فقط كوسيلة توصيل وتحقق للكود — بمجرد التأكد من صحته، نخرج فوراً من
+ * جلسة Supabase Auth (signOut) حتى لا تتعارض مع نظام الجلسات المخصص للتطبيق.
  *
- * لتفعيل رسائل SMS حقيقية لاحقاً:
- * 1. أنشئ حساباً لدى مزوّد SMS (لا يوجد مزوّد مجاني دائم — انظر ملاحظة الأسعار
- *    بالأسفل)
- * 2. أنشئ Supabase Edge Function تستقبل رقم الهاتف وترسل الطلب لواجهة برمجة
- *    المزوّد (API key يبقى على الخادم، لا يوضع مطلقاً في كود الواجهة الأمامية)
- * 3. استبدل محتوى الدالتين هنا لتناديا تلك الـ Edge Function بدل الكود الثابت
- *
- * ملاحظة حول "خدمة مجانية لرسائل SMS": لا يوجد مزوّد يرسل SMS فعلي مجاناً بلا
- * حدود — كل المزوّدين (Twilio وVonage وPlivo وغيرهم) يتقاضون عادة بين
- * 0.005 و0.08 دولار لكل رسالة حسب الدولة والحجم، وأغلبهم يمنحون فقط رصيداً
- * تجريبياً صغيراً عند التسجيل. البديل المجاني الحقيقي الوحيد هو استخدام تطبيق
- * مصادقة (TOTP) مثل Google Authenticator بدل الرسائل النصية — لا يحتاج إرسال
- * أي شيء عبر الشبكة، لكنه يتطلب أن يفتح الموظف تطبيق المصادقة كل مرة بدل تلقي
- * رسالة. أخبرني إن أردت اعتماد هذا البديل بدل SMS.
+ * كود Supabase Auth الحقيقي مكوّن من 6 أرقام (وليس 4 كما كان بوضع الاختبار).
  */
+import { supabase } from './supabase.js'
 
-const FIXED_CODE = '1234'
-const OTP_TTL_MS = 5 * 60 * 1000 // صلاحية الرمز 5 دقائق
-
-let pendingOtp = null // { login, expiresAt }
-
-export async function sendOtp(login) {
-  // TODO: استبدل هذا باستدعاء حقيقي لخدمة SMS عبر Supabase Edge Function
-  pendingOtp = { login, expiresAt: Date.now() + OTP_TTL_MS }
-  console.log(`📱 [تجريبي] رمز التحقق لـ ${login} هو: ${FIXED_CODE}`)
-  return true
+// يرسل كود التحقق الحقيقي عبر البريد الإلكتروني
+export async function sendOtp(email) {
+  const { error } = await supabase.auth.signInWithOtp({
+    email,
+    options: { shouldCreateUser: true }, // يسمح بإرسال الكود حتى لو أول مرة يستخدم هذا الإيميل مع Supabase Auth
+  })
+  if (error) return { ok: false, reason: error.message || 'تعذّر إرسال رمز التحقق' }
+  return { ok: true }
 }
 
-export function verifyOtp(login, code) {
-  if (!pendingOtp || pendingOtp.login !== login) {
-    return { ok: false, reason: 'لم يُطلَب رمز تحقق بعد — أعد المحاولة' }
+// يتحقق من الكود المُدخل من الموظف — طلب شبكة حقيقي (لذا أصبحت async)
+export async function verifyOtp(email, code) {
+  const { data, error } = await supabase.auth.verifyOtp({
+    email,
+    token: code.trim(),
+    type: 'email',
+  })
+  if (error || !data?.session) {
+    return { ok: false, reason: 'الرمز غير صحيح أو منتهي الصلاحية' }
   }
-  if (Date.now() > pendingOtp.expiresAt) {
-    return { ok: false, reason: 'انتهت صلاحية الرمز — اطلب رمزاً جديداً' }
-  }
-  if (code.trim() !== FIXED_CODE) {
-    return { ok: false, reason: 'الرمز غير صحيح' }
-  }
-  pendingOtp = null
+  // نخرج فوراً من جلسة Supabase Auth — لا نحتاجها، فقط أكّدت صحة الكود
+  await supabase.auth.signOut()
   return { ok: true }
+}
+
+// يخفي جزء من عنوان البريد الإلكتروني لعرضه بأمان بالواجهة (مثال: bi••l@naqaa.com)
+export function maskEmail(email) {
+  if (!email) return ''
+  const [user, domain] = email.split('@')
+  if (!domain) return email
+  const masked = user.length <= 2
+    ? user[0] + '•'
+    : user[0] + '•'.repeat(user.length - 2) + user.slice(-1)
+  return masked + '@' + domain
 }
