@@ -51,7 +51,7 @@ export default function LoginScreen({ onLogin }) {
       const { data: row, error: fetchErr } = await supabase
         .from('employees')
         .select('totp_secret')
-        .eq('id', emp.emp_id)
+        .eq('user_id', emp.emp_id)
         .single()
       if (fetchErr) throw fetchErr
 
@@ -65,7 +65,8 @@ export default function LoginScreen({ onLogin }) {
       }
     } catch (e) {
       console.error('❌ خطأ تسجيل الدخول:', e)
-      setErr('حدث خطأ، حاول مجدداً')
+      const detail = e?.message || e?.error_description || e?.hint || JSON.stringify(e)
+      setErr('❌ ' + detail)
     } finally {
       setLoading(false)
     }
@@ -76,13 +77,14 @@ export default function LoginScreen({ onLogin }) {
       const { error } = await supabase
         .from('employees')
         .update({ totp_secret: pendingSecret })
-        .eq('id', pendingUser.id)
+        .eq('user_id', pendingUser.id)
       if (error) throw error
       localStorage.setItem('nq_van_employee', JSON.stringify(pendingUser))
       onLogin(pendingUser)
     } catch (e) {
       console.error('❌ خطأ حفظ سر التحقق:', e)
-      setErr('تعذّر حفظ إعداد التحقق الثنائي — حاول مجدداً')
+      const detail = e?.message || e?.error_description || e?.hint || JSON.stringify(e)
+      setErr('❌ ' + detail)
       setStep('credentials')
     }
   }
