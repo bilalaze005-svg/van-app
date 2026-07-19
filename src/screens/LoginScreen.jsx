@@ -1,39 +1,20 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState } from 'react'
 import { supabase } from '../lib/supabase.js'
 import { T, buttonPrimary, buttonGhost, inputStyle } from '../lib/theme.js'
-import { sendOtp, verifyOtp, maskEmail } from '../lib/otp.js'
-
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+import { generateSecret, getOtpAuthUrl, verifyCode } from '../lib/totp.js'
+import TotpEnrollScreen from './TotpEnrollScreen.jsx'
 
 export default function LoginScreen({ onLogin }) {
-  const [step, setStep] = useState('credentials') // credentials | email | otp
+  const [step, setStep] = useState('credentials') // credentials | enroll | totp
   const [login, setLogin] = useState('')
   const [pass, setPass] = useState('')
-  const [email, setEmail] = useState('')
-  const [code, setCode] = useState('')
   const [err, setErr] = useState('')
   const [loading, setLoading] = useState(false)
-  const [otpBusy, setOtpBusy] = useState(false)
-  const [resendCooldown, setResendCooldown] = useState(0)
+
   const [pendingUser, setPendingUser] = useState(null)
-  const codeInputRef = useRef(null)
-
-  useEffect(() => {
-    if (step === 'otp') codeInputRef.current?.focus()
-  }, [step])
-
-  useEffect(() => {
-    if (resendCooldown <= 0) return
-    const t = setTimeout(() => setResendCooldown(c => c - 1), 1000)
-    return () => clearTimeout(t)
-  }, [resendCooldown])
-
-  const doSendOtp = async (emailAddress) => {
-    const result = await sendOtp(emailAddress)
-    if (!result.ok) { setErr(result.reason); return false }
-    setResendCooldown(30)
-    return true
-  }
+  const [pendingSecret, setPendingSecret] = useState(null)
+  const [code, setCode] = useState('')
+  const [totpBusy, setTotpBusy] = useState(false)
 
   const submitCredentials = async () => {
     if (!login.trim() || !pass) { setErr('أدخل البريد/الاسم وكلمة المرور'); return }
@@ -67,19 +48,20 @@ export default function LoginScreen({ onLogin }) {
       const sessionUser = { id: emp.emp_id, name: emp.emp_name }
       setPendingUser(sessionUser)
 
-      // البريد الإلكتروني لإرسال رمز التحقق: نجرب بريد الموظف من قاعدة البيانات،
-      // وإلا الإيميل المحفوظ محلياً من مرة سابقة، وإلا حقل تسجيل الدخول نفسه لو
-      // كان شكله بريداً صحيحاً، وإلا نطلبه صراحة (خطوة "email" أدناه).
-      const savedEmail = localStorage.getItem(`nq_van_email_${emp.emp_id}`)
-      const dbEmail = emp.emp_email || null
-      const knownEmail = dbEmail || savedEmail || (EMAIL_RE.test(login.trim()) ? login.trim() : null)
+      const { data: row, error: fetchErr } = await supabase
+        .from('employees')
+        .select('totp_secret')
+        .eq('id', emp.emp_id)
+        .single()
+      if (fetchErr) throw fetchErr
 
-      if (knownEmail) {
-        setEmail(knownEmail)
-        const ok = await doSendOtp(knownEmail)
-        if (ok) setStep('otp')
+      if (row?.totp_secret) {
+        setPendingSecret(row.totp_secret)
+        setStep('totp')
       } else {
-        setStep('email')
+        const newSecret = generateSecret()
+        setPendingSecret(newSecret)
+        setStep('enroll')
       }
     } catch (e) {
       console.error('❌ خطأ تسجيل الدخول:', e)
@@ -89,37 +71,50 @@ export default function LoginScreen({ onLogin }) {
     }
   }
 
-  const confirmEmail = async () => {
-    const trimmed = email.trim()
-    if (!EMAIL_RE.test(trimmed)) { setErr('أدخل بريداً إلكترونياً صحيحاً'); return }
-    setErr('')
-    localStorage.setItem(`nq_van_email_${pendingUser.id}`, trimmed)
-    const ok = await doSendOtp(trimmed)
-    if (ok) setStep('otp')
+  const onEnrollConfirmed = async () => {
+    try {
+      const { error } = await supabase
+        .from('employees')
+        .update({ totp_secret: pendingSecret })
+        .eq('id', pendingUser.id)
+      if (error) throw error
+      localStorage.setItem('nq_van_employee', JSON.stringify(pendingUser))
+      onLogin(pendingUser)
+    } catch (e) {
+      console.error('❌ خطأ حفظ سر التحقق:', e)
+      setErr('تعذّر حفظ إعداد التحقق الثنائي — حاول مجدداً')
+      setStep('credentials')
+    }
   }
 
-  const submitOtp = async () => {
-    if (!code.trim()) { setErr('أدخل رمز التحقق'); return }
-    setOtpBusy(true)
+  const submitOtp = () => {
+    if (code.trim().length !== 6) { setErr('أدخل الكود المكوّن من 6 أرقام'); return }
+    setTotpBusy(true)
     setErr('')
-    const result = await verifyOtp(email, code)
-    if (!result.ok) { setErr(result.reason); setOtpBusy(false); return }
-
+    const ok = verifyCode(pendingSecret, code)
+    if (!ok) {
+      setErr('❌ الكود غير صحيح — تأكد من الوقت بهاتفك وحاول مجدداً')
+      setTotpBusy(false)
+      return
+    }
     localStorage.setItem('nq_van_employee', JSON.stringify(pendingUser))
     onLogin(pendingUser)
   }
 
-  const resendCode = async () => {
-    if (resendCooldown > 0) return
-    setErr('')
-    await doSendOtp(email)
+  const backToCredentials = () => {
+    setStep('credentials'); setErr(''); setCode(''); setPendingUser(null); setPendingSecret(null)
   }
 
-  const backToCredentials = () => {
-    setStep('credentials')
-    setCode('')
-    setErr('')
-    setPendingUser(null)
+  if (step === 'enroll') {
+    return (
+      <TotpEnrollScreen
+        secret={pendingSecret}
+        otpauthUrl={getOtpAuthUrl(pendingSecret, pendingUser.name)}
+        accountName={pendingUser.name}
+        onConfirmed={onEnrollConfirmed}
+        onBack={backToCredentials}
+      />
+    )
   }
 
   return (
@@ -127,13 +122,11 @@ export default function LoginScreen({ onLogin }) {
       <div style={{ background: 'white', borderRadius: 28, padding: 30, boxShadow: '0 20px 50px rgba(0,0,0,.2)' }}>
         <div style={{ textAlign: 'center', marginBottom: 26 }}>
           <div style={{ width: 72, height: 72, borderRadius: 22, background: T.primaryLight, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 34, margin: '0 auto 14px' }}>
-            {step === 'credentials' ? '🚚' : step === 'email' ? '📧' : '🔐'}
+            {step === 'credentials' ? '🚚' : '🔐'}
           </div>
           <h1 style={{ fontSize: 19, fontWeight: 900, color: T.text }}>التاجر المتنقل</h1>
           <p style={{ fontSize: 12.5, color: T.textFaint, marginTop: 4 }}>
-            {step === 'credentials' && 'سجّل دخولك للمتابعة'}
-            {step === 'email' && 'أول مرة تسجّل دخول — أدخل بريدك لإرسال رمز التحقق مستقبلاً'}
-            {step === 'otp' && `أُرسل رمز مكوّن من 6 أرقام إلى ${maskEmail(email)}`}
+            {step === 'credentials' ? 'سجّل دخولك للمتابعة' : 'افتح تطبيق المصادقة على هاتفك وأدخل الكود الظاهر حالياً'}
           </p>
         </div>
 
@@ -163,36 +156,12 @@ export default function LoginScreen({ onLogin }) {
           </>
         )}
 
-        {step === 'email' && (
-          <>
-            <label style={{ fontSize: 12.5, fontWeight: 700, color: T.textSoft }}>البريد الإلكتروني</label>
-            <input
-              autoFocus value={email} onChange={(e) => setEmail(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && confirmEmail()}
-              inputMode="email" type="email"
-              style={{ ...inputStyle, marginTop: 6, marginBottom: 16, textAlign: 'center' }}
-              placeholder="example@naqaa.com"
-            />
-
-            {err && <div style={{ background: '#FEE2E2', color: T.danger, borderRadius: 12, padding: '11px 14px', fontSize: 13, marginBottom: 16, textAlign: 'center', fontWeight: 600 }}>{err}</div>}
-
-            <button onClick={confirmEmail}
-              style={{ ...buttonPrimary, width: '100%', padding: 16, fontSize: 15.5, marginBottom: 10 }}>
-              📤 إرسال رمز التحقق
-            </button>
-            <button onClick={backToCredentials} style={{ ...buttonGhost, width: '100%', padding: '8px 14px', fontSize: 12 }}>
-              ← رجوع
-            </button>
-          </>
-        )}
-
-        {step === 'otp' && (
+        {step === 'totp' && (
           <>
             <label style={{ fontSize: 12.5, fontWeight: 700, color: T.textSoft }}>رمز التحقق</label>
             <input
-              ref={codeInputRef}
-              value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-              onKeyDown={(e) => e.key === 'Enter' && !otpBusy && submitOtp()}
+              autoFocus value={code} onChange={(e) => { setCode(e.target.value.replace(/\D/g, '').slice(0, 6)); setErr('') }}
+              onKeyDown={(e) => e.key === 'Enter' && !totpBusy && submitOtp()}
               inputMode="numeric" maxLength={6}
               style={{ ...inputStyle, marginTop: 6, marginBottom: 16, textAlign: 'center', fontSize: 22, letterSpacing: 8, fontWeight: 900 }}
               placeholder="••••••"
@@ -200,20 +169,13 @@ export default function LoginScreen({ onLogin }) {
 
             {err && <div style={{ background: '#FEE2E2', color: T.danger, borderRadius: 12, padding: '11px 14px', fontSize: 13, marginBottom: 16, textAlign: 'center', fontWeight: 600 }}>{err}</div>}
 
-            <button onClick={submitOtp} disabled={otpBusy}
-              style={{ ...buttonPrimary, width: '100%', padding: 16, fontSize: 15.5, marginBottom: 10, background: otpBusy ? T.textFaint : T.primaryGradient }}>
-              {otpBusy ? '⏳ جارِ التحقق...' : '✅ تأكيد الدخول'}
+            <button onClick={submitOtp} disabled={totpBusy}
+              style={{ ...buttonPrimary, width: '100%', padding: 16, fontSize: 15.5, marginBottom: 10, background: totpBusy ? T.textFaint : T.primaryGradient }}>
+              {totpBusy ? '⏳ جارِ التحقق...' : '✅ تأكيد الدخول'}
             </button>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <button onClick={backToCredentials} style={{ ...buttonGhost, padding: '8px 14px', fontSize: 12 }}>
-                ← رجوع
-              </button>
-              <button onClick={resendCode} disabled={resendCooldown > 0}
-                style={{ ...buttonGhost, padding: '8px 14px', fontSize: 12, opacity: resendCooldown > 0 ? 0.5 : 1 }}>
-                {resendCooldown > 0 ? `إعادة الإرسال (${resendCooldown})` : 'إعادة إرسال الرمز'}
-              </button>
-            </div>
+            <button onClick={backToCredentials} style={{ ...buttonGhost, width: '100%', padding: '8px 14px', fontSize: 12 }}>
+              ← رجوع
+            </button>
           </>
         )}
       </div>
