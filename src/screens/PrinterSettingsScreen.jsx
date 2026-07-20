@@ -142,7 +142,7 @@ export default function PrinterSettingsScreen({ onBack, showToast }) {
             <div style={{ ...cardStyle, marginBottom: 16 }}>
               <div style={{ fontSize: 12.5, fontWeight: 800, marginBottom: 10 }}>حجم الخط</div>
               <div style={{ display: 'flex', gap: 8 }}>
-                {[{ v: 0.85, l: 'صغير' }, { v: 1, l: 'متوسط' }, { v: 1.2, l: 'كبير' }].map(fs => (
+                {[{ v: 1.2, l: 'صغير' }, { v: 1.55, l: 'متوسط' }, { v: 1.9, l: 'كبير' }].map(fs => (
                   <button key={fs.v} onClick={() => handleFontScaleChange(fs.v)}
                     style={{ flex: 1, padding: 12, borderRadius: T.radiusPill, border: 'none', fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit',
                       background: fontScale === fs.v ? T.success : T.bg, color: fontScale === fs.v ? 'white' : T.textSoft }}>

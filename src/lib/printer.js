@@ -82,7 +82,7 @@ export function setFooterText(text) {
 
 // مقياس حجم الخط: 0.85 صغير / 1 متوسط (افتراضي) / 1.2 كبير
 export function getFontScale() {
-  return parseFloat(localStorage.getItem(FONT_SCALE_KEY) || '1')
+  return parseFloat(localStorage.getItem(FONT_SCALE_KEY) || '1.55')
 }
 export function setFontScale(scale) {
   localStorage.setItem(FONT_SCALE_KEY, String(scale))
@@ -126,6 +126,9 @@ async function connectNative() {
   await BleClient.connect(device.deviceId, () => { deviceId = null; matchedService = null; connectedDevice = null })
   deviceId = device.deviceId
 
+  // ✅ على أندرويد 13+، getServices() قد ترجع فاضية أحياناً إلا لو استُدعيت
+  // discoverServices() أولاً (مشكلة معروفة بمكتبة @capacitor-community/bluetooth-le)
+  try { await BleClient.discoverServices(device.deviceId) } catch { /* بعض الأجهزة لا تحتاجها */ }
   const services = await BleClient.getServices(device.deviceId)
   matchedService = findMatchingService(services)
   if (!matchedService) {
@@ -214,7 +217,7 @@ async function writeBytes(bytes) {
   }
 }
 
-function renderReceiptCanvas({ shopName, shopPhone, items, total, payMode, employeeName, date }, widthPx) {
+function renderReceiptCanvas({ shopName, shopPhone, items, total, payMode, employeeName, date, promoDiscount, appliedPromoNames }, widthPx) {
   const s = getFontScale() // 0.85 صغير / 1 متوسط / 1.2 كبير
   const f = (px) => Math.round(px * s) // يحسب حجم الخط الفعلي بعد المقياس
 
@@ -223,7 +226,8 @@ function renderReceiptCanvas({ shopName, shopPhone, items, total, payMode, emplo
   const headerHeight = Math.round(110 * s)
   const footerHeight = Math.round(70 * s)
   const bodyHeight = items.length * lineHeight
-  const totalHeight = headerHeight + bodyHeight + footerHeight
+  const discountHeight = (promoDiscount > 0) ? Math.round(26 * s) : 0
+  const totalHeight = headerHeight + bodyHeight + discountHeight + footerHeight
 
   const canvas = document.createElement('canvas')
   canvas.width = widthPx
@@ -279,6 +283,13 @@ function renderReceiptCanvas({ shopName, shopPhone, items, total, payMode, emplo
   ctx.lineTo(widthPx - padding, y)
   ctx.stroke()
   y += Math.round(26 * s)
+
+  if (promoDiscount > 0) {
+    ctx.textAlign = 'center'
+    ctx.font = `${f(15)}px Arial`
+    ctx.fillText(`🎯 خصم عروض (${(appliedPromoNames || []).join('، ')}): -${promoDiscount.toFixed(0)} دج`, widthPx / 2, y)
+    y += Math.round(26 * s)
+  }
 
   ctx.textAlign = 'center'
   ctx.font = `bold ${f(22)}px Arial`

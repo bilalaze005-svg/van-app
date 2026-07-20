@@ -54,6 +54,7 @@ export async function syncPendingSales(supabase) {
         p_customer_name: sale.customer_name,
         p_customer_phone: sale.customer_phone,
         p_pay_mode: sale.pay_mode,
+        p_discount: sale.discount || 0,
       })
       if (error) throw error
       synced++

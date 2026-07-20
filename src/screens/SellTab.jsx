@@ -4,6 +4,7 @@ import { T, cardStyle, buttonPrimary, buttonGhost, inputStyle } from '../lib/the
 import { queueSale } from '../lib/offlineQueue.js'
 import useOnlineStatus from '../hooks/useOnlineStatus.js'
 import { printReceipt, getAutoPrint } from '../lib/printer.js'
+import { applyPromotions } from '../lib/promotions.js'
 
 export default function SellTab({ employee, showToast }) {
   const isOnline = useOnlineStatus()
@@ -13,6 +14,12 @@ export default function SellTab({ employee, showToast }) {
   const [shopName, setShopName] = useState('')
   const [shopPhone, setShopPhone] = useState('')
   const [payMode, setPayMode] = useState('cash')
+  const [promos, setPromos] = useState([])
+
+  useEffect(() => {
+    supabase.from('promotions').select('*').eq('active', true)
+      .then(({ data, error }) => { if (!error) setPromos(data || []) })
+  }, [])
   const [saving, setSaving] = useState(false)
   const [lastReceipt, setLastReceipt] = useState(null)
   const [printing, setPrinting] = useState(false)
@@ -59,7 +66,10 @@ export default function SellTab({ employee, showToast }) {
 
   const removeFromCart = (id) => setCart(prev => prev.filter(c => c.product_id !== id))
 
-  const total = cart.reduce((s, c) => s + c.price * c.qty, 0)
+  // ✅ حساب العروض المطبَّقة على السلة الحالية (bogo/percent/fixed/tier_discount)
+  const promoInput = cart.map(c => ({ id: c.product_id, price: c.price, qty: c.qty }))
+  const { promoDiscount, appliedPromoNames, netTotal } = applyPromotions(promoInput, promos)
+  const total = netTotal // ✅ المجموع الفعلي بعد كل الخصومات
 
   const autoPrintIfEnabled = (data) => {
     if (!getAutoPrint()) return
@@ -84,6 +94,7 @@ export default function SellTab({ employee, showToast }) {
       customer_name: shopName.trim(),
       customer_phone: shopPhone.trim() || null,
       pay_mode: payMode,
+      discount: promoDiscount || 0,
     }
     const receiptData = {
       shopName: shopName.trim(),
@@ -92,6 +103,8 @@ export default function SellTab({ employee, showToast }) {
       date: new Date().toLocaleString('ar-DZ'),
       items,
       total,
+      promoDiscount,
+      appliedPromoNames,
       payMode,
     }
 
@@ -131,6 +144,7 @@ export default function SellTab({ employee, showToast }) {
         p_customer_name: shopName.trim(),
         p_customer_phone: shopPhone.trim() || null,
         p_pay_mode: payMode,
+        p_discount: promoDiscount || 0,
       })
       if (error) throw error
 
@@ -299,6 +313,13 @@ export default function SellTab({ employee, showToast }) {
                 </button>
               ))}
             </div>
+
+            {promoDiscount > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: 13, marginBottom: 8, color: '#EA580C' }}>
+                <span>🎯 خصم عروض ({appliedPromoNames.join('، ')})</span>
+                <span>-{promoDiscount.toFixed(0)} دج</span>
+              </div>
+            )}
 
             <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 900, fontSize: 17, marginBottom: 12 }}>
               <span style={{ color: T.textSoft, fontSize: 13, alignSelf: 'center' }}>الإجمالي</span>
