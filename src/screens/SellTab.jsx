@@ -29,7 +29,18 @@ export default function SellTab({ employee, showToast }) {
     try {
       const { data, error } = await supabase.rpc('get_van_stock', { p_employee_id: employee.id })
       if (error) throw error
-      setVanStock(data || [])
+      const stock = data || []
+
+      // ✅ get_van_stock لا ترجع brand_id (لازم لعروض "خصم حسب الرتبة")،
+      // نجيبها باستعلام خفيف منفصل بدل تعديل دالة RPC نفسها
+      const ids = stock.map(s => s.product_id).filter(Boolean)
+      let brandMap = {}
+      if (ids.length) {
+        const { data: prodBrands } = await supabase.from('products').select('id,brand_id').in('id', ids)
+        brandMap = Object.fromEntries((prodBrands || []).map(p => [p.id, p.brand_id]))
+      }
+
+      setVanStock(stock.map(s => ({ ...s, brand_id: brandMap[s.product_id] ?? null })))
     } catch (e) {
       console.error('❌ خطأ تحميل مخزون الكاميو:', e)
     }
@@ -48,7 +59,7 @@ export default function SellTab({ employee, showToast }) {
         if (existing.qty >= item.qty) { showToast('⚠️ الكمية المتوفرة بالكاميو محدودة', true); return prev }
         return prev.map(c => c.product_id === item.product_id ? { ...c, qty: c.qty + 1 } : c)
       }
-      return [...prev, { product_id: item.product_id, name: item.name, price: item.price, image: item.image, qty: 1, maxQty: item.qty }]
+      return [...prev, { product_id: item.product_id, name: item.name, price: item.price, image: item.image, qty: 1, maxQty: item.qty, brand_id: item.brand_id }]
     })
   }
 
@@ -67,7 +78,7 @@ export default function SellTab({ employee, showToast }) {
   const removeFromCart = (id) => setCart(prev => prev.filter(c => c.product_id !== id))
 
   // ✅ حساب العروض المطبَّقة على السلة الحالية (bogo/percent/fixed/tier_discount)
-  const promoInput = cart.map(c => ({ id: c.product_id, price: c.price, qty: c.qty }))
+  const promoInput = cart.map(c => ({ id: c.product_id, price: c.price, qty: c.qty, brand_id: c.brand_id }))
   const { promoDiscount, appliedPromoNames, netTotal } = applyPromotions(promoInput, promos)
   const total = netTotal // ✅ المجموع الفعلي بعد كل الخصومات
 

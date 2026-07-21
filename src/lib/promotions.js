@@ -54,12 +54,21 @@ export function applyPromotions(items, promos = []) {
   const appliedPromoNames = []
 
   for (const promo of valuePromos) {
-    let productIds = []
-    try { productIds = JSON.parse(promo.product_ids || '[]').map(String) } catch { /* تجاهل */ }
+    let qualifyingLines
 
-    const qualifyingLines = productIds.length
-      ? lines.filter(l => productIds.includes(String(l.id)))
-      : lines
+    if (promo.type === 'tier_discount') {
+      let brandIds = []
+      try { brandIds = JSON.parse(promo.brand_ids || '[]').map(String) } catch { /* تجاهل */ }
+      qualifyingLines = brandIds.length
+        ? lines.filter(l => l.brand_id != null && brandIds.includes(String(l.brand_id)))
+        : lines
+    } else {
+      let productIds = []
+      try { productIds = JSON.parse(promo.product_ids || '[]').map(String) } catch { /* تجاهل */ }
+      qualifyingLines = productIds.length
+        ? lines.filter(l => productIds.includes(String(l.id)))
+        : lines
+    }
 
     if (!qualifyingLines.length) continue
 
@@ -76,7 +85,10 @@ export function applyPromotions(items, promos = []) {
     } else if (promo.type === 'fixed') {
       const minAmount = parseFloat(promo.min_amount) || 0
       if (qualifyingSubtotal < minAmount) continue
-      amt = Math.min(parseFloat(promo.discount_value) || 0, qualifyingSubtotal)
+      // ✅ الخصم الثابت يُطبَّق لكل وحدة مشتراة من المنتج المشمول، وليس مرة
+      // واحدة على كل الطلبية — مثال: خصم 100 دج + شراء 3 قطع = خصم 300 دج
+      const perUnit = parseFloat(promo.discount_value) || 0
+      amt = Math.min(perUnit * qualifyingQty, qualifyingSubtotal)
     } else if (promo.type === 'tier_discount') {
       const tierQty = parseInt(promo.tier_qty) || 0
       if (tierQty <= 0 || qualifyingQty < tierQty) continue
