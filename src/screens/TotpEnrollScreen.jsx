@@ -26,11 +26,14 @@ export default function TotpEnrollScreen({ secret, otpauthUrl, accountName, onCo
     }
   }
 
-  const confirm = () => {
+  const confirm = async () => {
     if (code.trim().length !== 6) { setErr('أدخل الكود المكوّن من 6 أرقام الظاهر بتطبيق المصادقة'); return }
+    // فحص محلي سريع لتجربة استخدام أفضل فقط — التحقق الحقيقي والمعتمَد أمنياً
+    // يتم لاحقاً بالخادم عبر onConfirmed(code) (auth.mfa.challenge/verify)
     if (!verifyCode(secret, code)) { setErr('❌ الكود غير صحيح — تأكد من مسح QR الصحيح أو أعد المحاولة'); return }
     setErr('')
-    onConfirmed()
+    const ok = await onConfirmed(code)
+    if (ok === false) setErr('❌ تعذّر التحقق من الخادم — حاول مجدداً')
   }
 
   return (
