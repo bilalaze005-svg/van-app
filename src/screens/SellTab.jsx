@@ -1,86 +1,27 @@
-import { useState, useEffect, useCallback } from 'react'
-import { supabase } from '../lib/supabase.js'
+import { useState } from 'react'
 import { T, cardStyle, buttonPrimary, buttonGhost, inputStyle } from '../lib/theme.js'
-import { queueSale } from '../lib/offlineQueue.js'
 import useOnlineStatus from '../hooks/useOnlineStatus.js'
 import { printReceipt, getAutoPrint } from '../lib/printer.js'
-import { applyPromotions } from '../lib/promotions.js'
+import useVanSale from '../hooks/useVanSale.js'
 
 export default function SellTab({ employee, showToast }) {
   const isOnline = useOnlineStatus()
-  const [vanStock, setVanStock] = useState([])
   const [search, setSearch] = useState('')
-  const [cart, setCart] = useState([]) // [{product_id, name, price, qty, maxQty}]
   const [shopName, setShopName] = useState('')
   const [shopPhone, setShopPhone] = useState('')
   const [payMode, setPayMode] = useState('cash')
-  const [promos, setPromos] = useState([])
-
-  useEffect(() => {
-    supabase.from('promotions').select('*').eq('active', true)
-      .then(({ data, error }) => { if (!error) setPromos(data || []) })
-  }, [])
-  const [saving, setSaving] = useState(false)
-  const [lastReceipt, setLastReceipt] = useState(null)
   const [printing, setPrinting] = useState(false)
   const [cartOpen, setCartOpen] = useState(false)
 
-  const loadVanStock = useCallback(async () => {
-    try {
-      const { data, error } = await supabase.rpc('get_van_stock', { p_employee_id: employee.id })
-      if (error) throw error
-      const stock = data || []
-
-      // ✅ get_van_stock لا ترجع brand_id (لازم لعروض "خصم حسب الرتبة")،
-      // نجيبها باستعلام خفيف منفصل بدل تعديل دالة RPC نفسها
-      const ids = stock.map(s => s.product_id).filter(Boolean)
-      let brandMap = {}
-      if (ids.length) {
-        const { data: prodBrands } = await supabase.from('products').select('id,brand_id').in('id', ids)
-        brandMap = Object.fromEntries((prodBrands || []).map(p => [p.id, p.brand_id]))
-      }
-
-      setVanStock(stock.map(s => ({ ...s, brand_id: brandMap[s.product_id] ?? null })))
-    } catch (e) {
-      console.error('❌ خطأ تحميل مخزون الكاميو:', e)
-    }
-  }, [employee.id])
-
-  useEffect(() => { loadVanStock() }, [loadVanStock])
+  const {
+    vanStock, cart, saving, lastReceipt, setLastReceipt,
+    promoDiscount, appliedPromoNames, total,
+    addToCart, cartQtyFor, updateQty, removeFromCart, completeSale,
+  } = useVanSale({ employee, showToast, isOnline })
 
   const filtered = vanStock
-    .filter(v => Number(v.qty) > 0)
-    .filter(v => !search.trim() || v.name.toLowerCase().includes(search.trim().toLowerCase()))
-
-  const addToCart = (item) => {
-    setCart(prev => {
-      const existing = prev.find(c => c.product_id === item.product_id)
-      if (existing) {
-        if (existing.qty >= item.qty) { showToast('⚠️ الكمية المتوفرة بالكاميو محدودة', true); return prev }
-        return prev.map(c => c.product_id === item.product_id ? { ...c, qty: c.qty + 1 } : c)
-      }
-      return [...prev, { product_id: item.product_id, name: item.name, price: item.price, image: item.image, qty: 1, maxQty: item.qty, brand_id: item.brand_id }]
-    })
-  }
-
-  const cartQtyFor = (id) => cart.find(c => c.product_id === id)?.qty || 0
-
-  const updateQty = (id, delta) => {
-    setCart(prev => prev.map(c => {
-      if (c.product_id !== id) return c
-      const newQty = c.qty + delta
-      if (newQty <= 0) return c
-      if (newQty > c.maxQty) { showToast('⚠️ الكمية المتوفرة بالكاميو محدودة', true); return c }
-      return { ...c, qty: newQty }
-    }).filter(c => c.qty > 0))
-  }
-
-  const removeFromCart = (id) => setCart(prev => prev.filter(c => c.product_id !== id))
-
-  // ✅ حساب العروض المطبَّقة على السلة الحالية (bogo/percent/fixed/tier_discount)
-  const promoInput = cart.map(c => ({ id: c.product_id, price: c.price, qty: c.qty, brand_id: c.brand_id }))
-  const { promoDiscount, appliedPromoNames, netTotal } = applyPromotions(promoInput, promos)
-  const total = netTotal // ✅ المجموع الفعلي بعد كل الخصومات
+    .filter((v) => Number(v.qty) > 0)
+    .filter((v) => !search.trim() || v.name.toLowerCase().includes(search.trim().toLowerCase()))
 
   const autoPrintIfEnabled = (data) => {
     if (!getAutoPrint()) return
@@ -92,93 +33,24 @@ export default function SellTab({ employee, showToast }) {
       })
   }
 
-  const completeSale = async () => {
-    if (saving) return // حماية من الضغط المزدوج قبل تفعّل الحالة بصريًا
-    if (cart.length === 0) { showToast('⚠️ السلة فارغة', true); return }
-    if (!shopName.trim()) { showToast('⚠️ أدخل اسم المحل', true); return }
-
-    setSaving(true)
-    const items = cart.map(c => ({ product_id: c.product_id, name: c.name, price: c.price, qty: c.qty }))
-    const salePayload = {
-      employee_id: employee.id,
-      items,
-      customer_name: shopName.trim(),
-      customer_phone: shopPhone.trim() || null,
-      pay_mode: payMode,
-      discount: promoDiscount || 0,
-    }
-    const receiptData = {
-      shopName: shopName.trim(),
-      shopPhone: shopPhone.trim(),
-      employeeName: employee.name,
-      date: new Date().toLocaleString('ar-DZ'),
-      items,
-      total,
-      promoDiscount,
-      appliedPromoNames,
-      payMode,
-    }
-
-    const finishAsQueued = () => {
-      queueSale(salePayload)
-      // خصم تفاؤلي من المخزون المعروض محلياً حتى لا يُباع نفس الصنف
-      // مرتين قبل مزامنة هذه العملية مع الخادم
-      setVanStock(prev => prev.map(v => {
-        const sold = items.find(i => i.product_id === v.product_id)
-        return sold ? { ...v, qty: v.qty - sold.qty } : v
-      }))
-      showToast(`📡 لا يوجد اتصال — تم حفظ بيع ${shopName} محلياً وسيُرسل تلقائياً عند عودة الشبكة`, true)
-      setCart([])
-      setShopName('')
-      setShopPhone('')
-      setPayMode('cash')
-      setCartOpen(false)
-      setLastReceipt(receiptData)
-      autoPrintIfEnabled(receiptData)
-    }
-
-    // بدون اتصال أصلاً؟ لا داعي لمحاولة الشبكة، نحفظ بالطابور مباشرة
-    if (!isOnline) {
-      finishAsQueued()
-      setSaving(false)
-      return
-    }
-
+  const handleCompleteSale = async () => {
     try {
-      // ✅ نداء واحد ذرّي: يخصم كل الأصناف ويسجّل الطلب داخل معاملة
-      // واحدة بقاعدة البيانات. لو فشل أي صنف (نقص كمية مثلاً)، تتراجع
-      // كل العملية تلقائياً ولا يُخصم أي شيء ولا يُسجَّل طلب جزئي.
-      // انظر supabase/complete_van_sale.sql
-      const { error } = await supabase.rpc('complete_van_sale', {
-        p_employee_id: employee.id,
-        p_items: items,
-        p_customer_name: shopName.trim(),
-        p_customer_phone: shopPhone.trim() || null,
-        p_pay_mode: payMode,
-        p_discount: promoDiscount || 0,
-      })
-      if (error) throw error
+      const result = await completeSale({ shopName, shopPhone, payMode })
+      if (!result) return // فشل تحقق بسيط (سلة فارغة/اسم فارغ) — رسالته ظهرت من داخل الـhook
 
-      showToast(`✅ تم تسجيل البيع لـ ${shopName} بقيمة ${total.toFixed(0)} دج`)
-      setCart([])
+      if (result.queued) {
+        showToast(`📡 لا يوجد اتصال — تم حفظ بيع ${shopName} محلياً وسيُرسل تلقائياً عند عودة الشبكة`, true)
+      } else {
+        showToast(`✅ تم تسجيل البيع لـ ${shopName} بقيمة ${total.toFixed(0)} دج`)
+      }
       setShopName('')
       setShopPhone('')
       setPayMode('cash')
-      setLastReceipt(receiptData)
       setCartOpen(false)
-      autoPrintIfEnabled(receiptData)
+      autoPrintIfEnabled(result.receiptData)
     } catch (e) {
       console.error('❌ خطأ إتمام البيع:', e)
-      const isNetworkError = e?.message === 'Failed to fetch' || e?.name === 'TypeError'
-      if (isNetworkError) {
-        finishAsQueued()
-      } else {
-        showToast('❌ ' + (e.message || 'فشل إتمام البيع') + ' — لم يُخصم أي شيء من الكاميو', true)
-      }
-      // ملاحظة: بما أن complete_van_sale ذرّية، فشلها المنطقي يعني
-      // عدم حدوث أي تغيير فعلي بالخادم، فلا حاجة لإعادة تحميل المخزون
-    } finally {
-      setSaving(false)
+      showToast('❌ ' + (e.message || 'فشل إتمام البيع') + ' — لم يُخصم أي شيء من الكاميو', true)
     }
   }
 
@@ -224,7 +96,7 @@ export default function SellTab({ employee, showToast }) {
 
       {/* شبكة المنتجات — تجربة شبيهة بمتجر نقاء */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, marginBottom: cart.length > 0 ? 90 : 20 }}>
-        {filtered.map(v => {
+        {filtered.map((v) => {
           const inCart = cartQtyFor(v.product_id)
           return (
             <button key={v.product_id} onClick={() => addToCart(v)}
@@ -258,7 +130,6 @@ export default function SellTab({ employee, showToast }) {
 
       {/* السلة القابلة للطي */}
       {cart.length > 0 && !cartOpen && (
-        // شريط عائم صغير — يعرض الملخص فقط، يتوسع بالضغط عليه
         <button onClick={() => setCartOpen(true)}
           style={{
             position: 'fixed', bottom: 86, right: 14, left: 14, maxWidth: 470, margin: '0 auto',
@@ -278,7 +149,6 @@ export default function SellTab({ employee, showToast }) {
 
       {cart.length > 0 && cartOpen && (
         <>
-          {/* خلفية شفافة — الضغط عليها يطوي السلة */}
           <div onClick={() => setCartOpen(false)}
             style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.35)', zIndex: 29 }} />
 
@@ -294,7 +164,7 @@ export default function SellTab({ employee, showToast }) {
                 طي ▾
               </button>
             </div>
-            {cart.map(c => (
+            {cart.map((c) => (
               <div key={c.product_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: `1px solid ${T.border}` }}>
                 {c.image ? (
                   <img src={c.image} alt="" style={{ width: 34, height: 34, objectFit: 'cover', borderRadius: 8, flexShrink: 0 }} />
@@ -316,7 +186,7 @@ export default function SellTab({ employee, showToast }) {
               style={{ ...inputStyle, padding: 11, marginBottom: 10, fontSize: 13 }} />
 
             <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
-              {[{ v: 'cash', l: 'نقداً' }, { v: 'credit', l: 'آجل' }, { v: 'cheque', l: 'شيك' }].map(m => (
+              {[{ v: 'cash', l: 'نقداً' }, { v: 'credit', l: 'آجل' }, { v: 'cheque', l: 'شيك' }].map((m) => (
                 <button key={m.v} onClick={() => setPayMode(m.v)}
                   style={{ flex: 1, padding: 9, borderRadius: T.radiusSm, border: 'none', fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit',
                     background: payMode === m.v ? T.primary : T.bg, color: payMode === m.v ? 'white' : T.textSoft, transition: 'all .15s' }}>
@@ -337,7 +207,7 @@ export default function SellTab({ employee, showToast }) {
               <span style={{ color: T.primary }}>{total.toFixed(0)} دج</span>
             </div>
 
-            <button disabled={saving} onClick={completeSale}
+            <button disabled={saving} onClick={handleCompleteSale}
               style={{ ...buttonPrimary, width: '100%', padding: 15, fontSize: 15, background: saving ? T.textFaint : T.primaryGradient }}>
               {saving ? '⏳ جارِ الحفظ...' : '✅ إتمام البيع'}
             </button>

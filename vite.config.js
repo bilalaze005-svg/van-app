@@ -2,8 +2,11 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   base: './',
+  // ✅ يحذف console.log/debugger تلقائياً من نسخة الإنتاج فقط (npm run build)
+  // — تبقى console.log تعمل عادي أثناء التطوير المحلي (npm run dev)
+  esbuild: mode === 'production' ? { drop: ['console', 'debugger'] } : {},
   plugins: [
     react(),
     VitePWA({
@@ -45,5 +48,9 @@ export default defineConfig({
   server: {
     host: true,
     open: true,
-  }
-})
+  },
+  test: {
+    environment: 'node',
+    globals: false,
+  },
+}))

@@ -1,80 +1,18 @@
-import { useState, useEffect, useCallback } from 'react'
-import { supabase } from '../lib/supabase.js'
+import { useState } from 'react'
 import { T, cardStyle, buttonPrimary, inputStyle } from '../lib/theme.js'
-
-const PAGE_SIZE = 30
+import useLoadStock from '../hooks/useLoadStock.js'
 
 export default function LoadTab({ employee, showToast }) {
   const [search, setSearch] = useState('')
-  const [products, setProducts] = useState([])
   const [qtyMap, setQtyMap] = useState({})
-  const [loadingId, setLoadingId] = useState(null)
-  const [vanStock, setVanStock] = useState([])
-  const [loadingList, setLoadingList] = useState(true)
-  const [loadingMore, setLoadingMore] = useState(false)
-  const [hasMore, setHasMore] = useState(true)
 
-  const searchProducts = useCallback(async (page = 0) => {
-    if (page === 0) setLoadingList(true); else setLoadingMore(true)
-    try {
-      let q = supabase.from('products').select('id,name,price,stock,sku,image').eq('disabled', false).gt('stock', 0)
-      if (search.trim()) {
-        const like = `%${search.trim()}%`
-        q = q.or(`name.ilike.${like},sku.ilike.${like}`)
-      }
-      const from = page * PAGE_SIZE
-      const { data, error } = await q
-        .order(search.trim() ? 'name' : 'created_at', { ascending: !!search.trim() })
-        .range(from, from + PAGE_SIZE - 1)
-      if (error) throw error
-      setProducts(prev => page === 0 ? (data || []) : [...prev, ...(data || [])])
-      setHasMore((data || []).length === PAGE_SIZE)
-    } catch (e) {
-      console.error('❌ خطأ البحث:', e)
-    } finally {
-      setLoadingList(false)
-      setLoadingMore(false)
-    }
-  }, [search])
+  const { products, loadingList, loadingMore, hasMore, vanStock, loadingId, doLoad, loadMore } =
+    useLoadStock({ employee, showToast, search })
 
-  useEffect(() => {
-    const t = setTimeout(() => searchProducts(0), 350)
-    return () => clearTimeout(t)
-  }, [searchProducts])
-
-  const loadVanStock = useCallback(async () => {
-    try {
-      const { data, error } = await supabase.rpc('get_van_stock', { p_employee_id: employee.id })
-      if (error) throw error
-      setVanStock(data || [])
-    } catch (e) {
-      console.error('❌ خطأ تحميل مخزون الكاميو:', e)
-    }
-  }, [employee.id])
-
-  useEffect(() => { loadVanStock() }, [loadVanStock])
-
-  const doLoad = async (product) => {
+  const handleLoad = async (product) => {
     const qty = parseFloat(qtyMap[product.id])
-    if (!qty || qty <= 0) { showToast('⚠️ أدخل كمية صحيحة أولاً', true); return }
-    if (qty > product.stock) { showToast(`⚠️ الكمية بالمخزون الرئيسي (${product.stock}) أقل من المطلوب`, true); return }
-
-    setLoadingId(product.id)
-    try {
-      const { error } = await supabase.rpc('load_van_stock', {
-        p_employee_id: employee.id, p_product_id: product.id, p_qty: qty,
-      })
-      if (error) throw error
-      showToast(`✅ تم تحميل ${qty} من ${product.name}`)
-      setQtyMap(prev => ({ ...prev, [product.id]: '' }))
-      setProducts(prev => prev.map(p => p.id === product.id ? { ...p, stock: p.stock - qty } : p))
-      loadVanStock()
-    } catch (e) {
-      console.error('❌ خطأ التحميل:', e)
-      showToast('❌ ' + (e.message || 'فشل التحميل'), true)
-    } finally {
-      setLoadingId(null)
-    }
+    const ok = await doLoad(product, qty)
+    if (ok) setQtyMap((prev) => ({ ...prev, [product.id]: '' }))
   }
 
   const vanTotalItems = vanStock.reduce((s, v) => s + Number(v.qty), 0)
@@ -102,7 +40,7 @@ export default function LoadTab({ employee, showToast }) {
       {vanStock.length > 0 && (
         <div style={{ ...cardStyle, marginBottom: 18 }}>
           <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 10, color: T.textSoft }}>محتوى الكاميو حالياً</div>
-          {vanStock.map(v => (
+          {vanStock.map((v) => (
             <div key={v.product_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: `1px solid ${T.border}` }}>
               {v.image ? (
                 <img src={v.image} alt="" style={{ width: 30, height: 30, objectFit: 'cover', borderRadius: 8, flexShrink: 0 }} />
@@ -131,7 +69,7 @@ export default function LoadTab({ employee, showToast }) {
       )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
-        {products.map(p => (
+        {products.map((p) => (
           <div key={p.id} style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
             <div style={{ aspectRatio: '1.6', background: T.bg, position: 'relative' }}>
               {p.image ? (
@@ -150,10 +88,10 @@ export default function LoadTab({ employee, showToast }) {
                 <input
                   type="number" min="0" placeholder="كمية"
                   value={qtyMap[p.id] || ''}
-                  onChange={(e) => setQtyMap(prev => ({ ...prev, [p.id]: e.target.value }))}
+                  onChange={(e) => setQtyMap((prev) => ({ ...prev, [p.id]: e.target.value }))}
                   style={{ width: 0, flex: 1, padding: 7, borderRadius: T.radiusSm, border: `1.5px solid ${T.border}`, fontSize: 12, textAlign: 'center', fontFamily: 'inherit' }}
                 />
-                <button disabled={loadingId === p.id} onClick={() => doLoad(p)}
+                <button disabled={loadingId === p.id} onClick={() => handleLoad(p)}
                   style={{ ...buttonPrimary, padding: '7px 10px', fontSize: 12, flexShrink: 0, background: loadingId === p.id ? T.textFaint : T.primaryGradient }}>
                   {loadingId === p.id ? '⏳' : '⬆️'}
                 </button>
@@ -168,7 +106,7 @@ export default function LoadTab({ employee, showToast }) {
       )}
 
       {!loadingList && hasMore && products.length > 0 && (
-        <button onClick={() => searchProducts(Math.floor(products.length / PAGE_SIZE))} disabled={loadingMore}
+        <button onClick={loadMore} disabled={loadingMore}
           style={{ ...buttonPrimary, width: '100%', padding: 13, fontSize: 13, marginTop: 14, background: T.bg, color: T.textSoft, boxShadow: 'none' }}>
           {loadingMore ? '⏳ جارِ التحميل...' : 'تحميل المزيد'}
         </button>
