@@ -15,7 +15,7 @@ export default function SellTab({ employee, showToast }) {
 
   const {
     vanStock, cart, saving, lastReceipt, setLastReceipt,
-    promoDiscount, appliedPromoNames, total,
+    promoDiscount, appliedPromoNames, total, unitPrice,
     addToCart, cartQtyFor, updateQty, removeFromCart, completeSale,
   } = useVanSale({ employee, showToast, isOnline })
 
@@ -98,6 +98,8 @@ export default function SellTab({ employee, showToast }) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, marginBottom: cart.length > 0 ? 90 : 20 }}>
         {filtered.map((v) => {
           const inCart = cartQtyFor(v.product_id)
+          const isCarton = !!v.carton_price && !!v.units
+          const availCartons = isCarton ? Math.floor(v.qty / v.units) : v.qty
           return (
             <button key={v.product_id} onClick={() => addToCart(v)}
               style={{ ...cardStyle, padding: 0, overflow: 'hidden', border: inCart ? `2px solid ${T.primary}` : '2px solid transparent', textAlign: 'right', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', flexDirection: 'column' }}>
@@ -108,7 +110,7 @@ export default function SellTab({ employee, showToast }) {
                   <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30 }}>📦</div>
                 )}
                 <span style={{ position: 'absolute', top: 8, left: 8, background: 'rgba(255,255,255,.95)', color: T.primary, borderRadius: T.radiusPill, padding: '3px 9px', fontSize: 10, fontWeight: 900, boxShadow: '0 1px 4px rgba(0,0,0,.1)' }}>
-                  متوفر {v.qty}
+                  متوفر {availCartons}{isCarton ? ' كرتون' : ''}
                 </span>
                 {inCart > 0 && (
                   <span style={{ position: 'absolute', top: 8, right: 8, background: T.primary, color: 'white', borderRadius: '50%', width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900, boxShadow: '0 2px 6px rgba(234,88,12,.4)' }}>
@@ -119,8 +121,11 @@ export default function SellTab({ employee, showToast }) {
               <div style={{ padding: '10px 12px 12px' }}>
                 <div style={{ fontWeight: 800, fontSize: 12.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: T.text }}>{v.name}</div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
-                  <span style={{ fontWeight: 900, fontSize: 14, color: T.primary }}>{v.price} <span style={{ fontSize: 10, fontWeight: 700 }}>دج</span></span>
+                  <span style={{ fontWeight: 900, fontSize: 14, color: T.primary }}>{isCarton ? v.carton_price : v.price} <span style={{ fontSize: 10, fontWeight: 700 }}>دج</span></span>
                   <span style={{ background: T.primaryLight, color: T.primary, borderRadius: '50%', width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontWeight: 900 }}>+</span>
+                </div>
+                <div style={{ fontSize: 10, color: isCarton ? T.primary : T.textFaint, marginTop: 3, fontWeight: isCarton ? 800 : 400 }}>
+                  {isCarton ? `🧃 يُباع بالكرتون (${v.units} وحدة)` : 'يُباع بالقطعة'}
                 </div>
               </div>
             </button>
@@ -165,18 +170,23 @@ export default function SellTab({ employee, showToast }) {
               </button>
             </div>
             {cart.map((c) => (
-              <div key={c.product_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: `1px solid ${T.border}` }}>
-                {c.image ? (
-                  <img src={c.image} alt="" style={{ width: 34, height: 34, objectFit: 'cover', borderRadius: 8, flexShrink: 0 }} />
-                ) : (
-                  <div style={{ width: 34, height: 34, borderRadius: 8, background: T.bg, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>📦</div>
-                )}
-                <div style={{ flex: 1, fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name}</div>
-                <button onClick={() => updateQty(c.product_id, -1)} style={{ width: 26, height: 26, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: 'white', cursor: 'pointer', fontWeight: 700 }}>−</button>
-                <span style={{ fontSize: 13, fontWeight: 800, minWidth: 18, textAlign: 'center' }}>{c.qty}</span>
-                <button onClick={() => updateQty(c.product_id, 1)} style={{ width: 26, height: 26, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: 'white', cursor: 'pointer', fontWeight: 700 }}>+</button>
-                <span style={{ fontSize: 12, fontWeight: 800, color: T.primary, minWidth: 55, textAlign: 'left' }}>{(c.price * c.qty).toFixed(0)} دج</span>
-                <button onClick={() => removeFromCart(c.product_id)} style={{ background: '#FEE2E2', color: T.danger, border: 'none', borderRadius: T.radiusSm, width: 26, height: 26, cursor: 'pointer', fontWeight: 700 }}>✕</button>
+              <div key={c.product_id} style={{ padding: '8px 0', borderBottom: `1px solid ${T.border}` }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {c.image ? (
+                    <img src={c.image} alt="" style={{ width: 34, height: 34, objectFit: 'cover', borderRadius: 8, flexShrink: 0 }} />
+                  ) : (
+                    <div style={{ width: 34, height: 34, borderRadius: 8, background: T.bg, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>📦</div>
+                  )}
+                  <div style={{ flex: 1, fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name}</div>
+                  <button onClick={() => updateQty(c.product_id, -1)} style={{ width: 26, height: 26, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: 'white', cursor: 'pointer', fontWeight: 700 }}>−</button>
+                  <span style={{ fontSize: 13, fontWeight: 800, minWidth: 18, textAlign: 'center' }}>{c.qty}</span>
+                  <button onClick={() => updateQty(c.product_id, 1)} style={{ width: 26, height: 26, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: 'white', cursor: 'pointer', fontWeight: 700 }}>+</button>
+                  <span style={{ fontSize: 12, fontWeight: 800, color: T.primary, minWidth: 55, textAlign: 'left' }}>{(unitPrice(c) * c.qty).toFixed(0)} دج</span>
+                  <button onClick={() => removeFromCart(c.product_id)} style={{ background: '#FEE2E2', color: T.danger, border: 'none', borderRadius: T.radiusSm, width: 26, height: 26, cursor: 'pointer', fontWeight: 700 }}>✕</button>
+                </div>
+                <div style={{ fontSize: 10.5, fontWeight: 700, color: c.unitMode === 'carton' ? T.primary : T.textFaint, padding: '4px 42px 0 0' }}>
+                  {c.unitMode === 'carton' ? `🧃 بالكرتون (${c.units} وحدة/كرتون)` : '🔹 بالقطعة'}
+                </div>
               </div>
             ))}
 
