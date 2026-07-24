@@ -274,7 +274,7 @@ function renderReceiptCanvas({ shopName, shopPhone, items, total, payMode, emplo
     ctx.textAlign = 'right'
     ctx.fillText(`${it.name}`, widthPx - padding, y)
     ctx.textAlign = 'left'
-    ctx.fillText(`${it.qty} × ${it.price} = ${lineTotal} دج`, padding, y)
+    ctx.fillText(`${it.qty}${it.unit === 'carton' ? ' كرتون' : ''} × ${it.price} = ${lineTotal} دج`, padding, y)
     y += lineHeight
   }
 
