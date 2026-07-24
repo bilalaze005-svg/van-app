@@ -104,12 +104,15 @@ export default function useVanSale({ employee, showToast, isOnline }) {
 
   /** @param {VanStockItem} item */
   const addToCart = (item) => {
-    // ✅ بيع بالكرتون فقط: أي منتج له سعر كرتون *وعدد وحدات* محدَّدين يُضاف
-    // إجبارياً بوضع الكرتون. بدون units لا يمكن حساب عدد القطع الفعلي
-    // المخصوم من الكاميو، فنسقطه تلقائياً لوضع القطعة كاستثناء آمن.
+    // ✅ بيع بالكرتون فقط. مخزون الكاميو (get_van_stock) مُخزَّن بالكرتون
+    // دائماً (نفس اصطلاح كامل النظام: المخزون الرئيسي وسجل المشتريات كلها
+    // بالكرتون) — لذلك وضع الكرتون لا يحتاج أي تحويل: عدد الكراتين
+    // بالسلة يُقارَن مباشرة بـ item.qty (كراتين متوفرة بالكاميو).
+    // وضع القطعة (استثناء لمنتج بلا سعر كرتون) يحوّل الكراتين المتوفرة
+    // لعدد القطع المكافئ بالضرب في units.
     const canCarton = !!item.carton_price && !!item.units
     const unitMode = canCarton ? 'carton' : 'unit'
-    const maxQty = unitMode === 'carton' ? Math.floor(item.qty / item.units) : item.qty
+    const maxQty = unitMode === 'carton' ? item.qty : item.qty * (item.units || 1)
 
     setCart((prev) => {
       const existing = prev.find((c) => c.product_id === item.product_id)
@@ -121,7 +124,7 @@ export default function useVanSale({ employee, showToast, isOnline }) {
         return prev.map((c) => c.product_id === item.product_id ? { ...c, qty: c.qty + 1 } : c)
       }
       if (maxQty <= 0) {
-        showToast(unitMode === 'carton' ? `⚠️ لا يوجد كرتون كامل متوفر من "${item.name}" بالكاميو حالياً` : '⚠️ الكمية غير متوفرة بالكاميو', true)
+        showToast(unitMode === 'carton' ? `⚠️ لا يوجد كرتون متوفر من "${item.name}" بالكاميو حالياً` : '⚠️ الكمية غير متوفرة بالكاميو', true)
         return prev
       }
       return [...prev, {
@@ -164,28 +167,26 @@ export default function useVanSale({ employee, showToast, isOnline }) {
     if (!shopName.trim()) { showToast('⚠️ أدخل اسم المحل', true); return null }
 
     setSaving(true)
-    // ✅ بيع بالكرتون فقط: الدالة complete_van_sale (RPC) تخصم من مخزون
-    // الكاميو بنفس "qty" المُرسلة وتحسب الإجمالي بـ price×qty لكل صنف —
-    // وبما أن مخزون الكاميو مُسجَّل بالقطعة (نفس وحدة المخزون الرئيسي)،
-    // يجب أن تصل الدالة دائماً بـ qty بالقطعة الفعلية، وبسعر القطعة
-    // "الفعلي" (سعر الكرتون ÷ عدد الوحدات) حتى يبقى price×qty = المبلغ
-    // الصحيح تماماً كأننا بعنا بالكرتون. نُبقي أيضاً حقولاً إضافية
-    // (unit/display_qty/unit_price) للقراءة البشرية لاحقاً — RPC تتجاهلها
-    // ولا تؤثر على حساباتها لأنها تقرأ فقط product_id/price/qty.
+    // ✅ بيع بالكرتون فقط. بما أن مخزون الكاميو مُسجَّل بالكرتون أصلاً (مثل
+    // باقي النظام)، عناصر الكرتون تُرسَل مباشرة بلا أي تحويل: qty=عدد
+    // الكراتين، price=سعر الكرتون — تُطابق تمامًا وحدة "sell_van_stock".
+    // الاستثناء الوحيد: منتج بلا سعر كرتون يُباع بالقطعة، فنرسل كسرًا من
+    // الكرتون (qty/units) بسعر مكافئ (price×units) حتى يبقى الإجمالي
+    // ونقصان مخزون الكاميو صحيحين معًا دون لمس دالة RPC.
     const items = cart.map((c) => {
-      const isCarton = c.unitMode === 'carton' && c.units
+      if (c.unitMode === 'carton') {
+        return { product_id: c.product_id, name: c.name, price: c.cartonPrice, qty: c.qty, unit: 'carton' }
+      }
+      const units = c.units || 1
       return {
-        product_id: c.product_id,
-        name: c.name,
-        price: isCarton ? +(c.cartonPrice / c.units).toFixed(4) : c.price,
-        qty: isCarton ? c.qty * c.units : c.qty,
-        unit: isCarton ? 'carton' : 'unit',
-        display_qty: c.qty,
-        unit_price: isCarton ? c.cartonPrice : c.price,
+        product_id: c.product_id, name: c.name,
+        price: +(c.price * units).toFixed(4), qty: +(c.qty / units).toFixed(6),
+        unit: 'unit', display_qty: c.qty, unit_price: c.price,
       }
     })
-    // ✅ نسخة مقروءة للفاتورة المطبوعة فقط (بالكرتون وسعره الطبيعي، وليس
-    // بالحساب الداخلي بالقطعة) — لا تُرسل لقاعدة البيانات
+    // ✅ نسخة مقروءة للفاتورة المطبوعة فقط (بالوحدة الطبيعية للزبون)،
+    // مختلفة عن items فقط في حالة استثناء بيع القطعة (كسر الكرتون هناك
+    // غير مقروء بشرياً على الفاتورة)
     const receiptItems = cart.map((c) => ({
       product_id: c.product_id, name: c.name,
       price: unitPrice(c), qty: c.qty, unit: c.unitMode === 'carton' ? 'carton' : 'unit',
