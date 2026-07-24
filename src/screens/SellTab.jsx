@@ -99,7 +99,9 @@ export default function SellTab({ employee, showToast }) {
         {filtered.map((v) => {
           const inCart = cartQtyFor(v.product_id)
           const isCarton = !!v.carton_price && !!v.units
-          const availCartons = isCarton ? Math.floor(v.qty / v.units) : v.qty
+          // ✅ v.qty القادم من get_van_stock هو بالكرتون مباشرة (نفس اصطلاح
+          // النظام كله)؛ استثناء القطعة فقط يحوّله لعدد القطع المكافئ للعرض
+          const availDisplay = isCarton ? v.qty : v.qty * (v.units || 1)
           return (
             <button key={v.product_id} onClick={() => addToCart(v)}
               style={{ ...cardStyle, padding: 0, overflow: 'hidden', border: inCart ? `2px solid ${T.primary}` : '2px solid transparent', textAlign: 'right', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', flexDirection: 'column' }}>
@@ -110,7 +112,7 @@ export default function SellTab({ employee, showToast }) {
                   <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30 }}>📦</div>
                 )}
                 <span style={{ position: 'absolute', top: 8, left: 8, background: 'rgba(255,255,255,.95)', color: T.primary, borderRadius: T.radiusPill, padding: '3px 9px', fontSize: 10, fontWeight: 900, boxShadow: '0 1px 4px rgba(0,0,0,.1)' }}>
-                  متوفر {availCartons}{isCarton ? ' كرتون' : ''}
+                  متوفر {availDisplay}{isCarton ? ' كرتون' : ''}
                 </span>
                 {inCart > 0 && (
                   <span style={{ position: 'absolute', top: 8, right: 8, background: T.primary, color: 'white', borderRadius: '50%', width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900, boxShadow: '0 2px 6px rgba(234,88,12,.4)' }}>
