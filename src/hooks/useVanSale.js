@@ -41,15 +41,21 @@ async function fetchVanStock(employeeId) {
   if (error) throw error
   const stock = data || []
 
-  // ✅ get_van_stock لا ترجع brand_id (لازم لعروض "خصم حسب الرتبة")،
-  // نجيبها باستعلام خفيف منفصل بدل تعديل دالة RPC نفسها
+  // ✅ get_van_stock لا ترجع brand_id/carton_price/units (لازمة لعروض
+  // "خصم حسب الرتبة" وللبيع بالكرتون)، نجيبها باستعلام خفيف منفصل بدل
+  // تعديل دالة RPC نفسها
   const ids = stock.map((s) => s.product_id).filter(Boolean)
-  let brandMap = {}
+  let prodMap = {}
   if (ids.length) {
-    const { data: prodBrands } = await supabase.from('products').select('id,brand_id').in('id', ids)
-    brandMap = Object.fromEntries((prodBrands || []).map((p) => [p.id, p.brand_id]))
+    const { data: prodExtra } = await supabase.from('products').select('id,brand_id,carton_price,units').in('id', ids)
+    prodMap = Object.fromEntries((prodExtra || []).map((p) => [p.id, p]))
   }
-  return stock.map((s) => ({ ...s, brand_id: brandMap[s.product_id] ?? null }))
+  return stock.map((s) => ({
+    ...s,
+    brand_id: prodMap[s.product_id]?.brand_id ?? null,
+    carton_price: prodMap[s.product_id]?.carton_price ?? null,
+    units: prodMap[s.product_id]?.units ?? null,
+  }))
 }
 
 async function fetchPromos() {
@@ -93,15 +99,35 @@ export default function useVanSale({ employee, showToast, isOnline }) {
   const [saving, setSaving] = useState(false)
   const [lastReceipt, setLastReceipt] = useState(null)
 
+  // ✅ السعر الفعلي حسب وحدة البيع (كرتون لو مفروض ومتوفر، وإلا بالقطعة)
+  const unitPrice = (item) => (item.unitMode === 'carton' && item.cartonPrice ? item.cartonPrice : item.price)
+
   /** @param {VanStockItem} item */
   const addToCart = (item) => {
+    // ✅ بيع بالكرتون فقط: أي منتج له سعر كرتون *وعدد وحدات* محدَّدين يُضاف
+    // إجبارياً بوضع الكرتون. بدون units لا يمكن حساب عدد القطع الفعلي
+    // المخصوم من الكاميو، فنسقطه تلقائياً لوضع القطعة كاستثناء آمن.
+    const canCarton = !!item.carton_price && !!item.units
+    const unitMode = canCarton ? 'carton' : 'unit'
+    const maxQty = unitMode === 'carton' ? Math.floor(item.qty / item.units) : item.qty
+
     setCart((prev) => {
       const existing = prev.find((c) => c.product_id === item.product_id)
       if (existing) {
-        if (existing.qty >= item.qty) { showToast('⚠️ الكمية المتوفرة بالكاميو محدودة', true); return prev }
+        if (existing.qty >= existing.maxQty) {
+          showToast(existing.unitMode === 'carton' ? `⚠️ أقصى كمية متوفرة بالكاميو: ${existing.maxQty} كرتون` : '⚠️ الكمية المتوفرة بالكاميو محدودة', true)
+          return prev
+        }
         return prev.map((c) => c.product_id === item.product_id ? { ...c, qty: c.qty + 1 } : c)
       }
-      return [...prev, { product_id: item.product_id, name: item.name, price: item.price, image: item.image, qty: 1, maxQty: item.qty, brand_id: item.brand_id }]
+      if (maxQty <= 0) {
+        showToast(unitMode === 'carton' ? `⚠️ لا يوجد كرتون كامل متوفر من "${item.name}" بالكاميو حالياً` : '⚠️ الكمية غير متوفرة بالكاميو', true)
+        return prev
+      }
+      return [...prev, {
+        product_id: item.product_id, name: item.name, price: item.price, image: item.image, qty: 1,
+        maxQty, unitMode, cartonPrice: item.carton_price, units: item.units, brand_id: item.brand_id,
+      }]
     })
   }
 
@@ -120,7 +146,7 @@ export default function useVanSale({ employee, showToast, isOnline }) {
   const removeFromCart = (id) => setCart((prev) => prev.filter((c) => c.product_id !== id))
 
   // ✅ حساب العروض المطبَّقة على السلة الحالية (bogo/percent/fixed/tier_discount)
-  const promoInput = cart.map((c) => ({ id: c.product_id, price: c.price, qty: c.qty, brand_id: c.brand_id }))
+  const promoInput = cart.map((c) => ({ id: c.product_id, price: unitPrice(c), qty: c.qty, brand_id: c.brand_id }))
   const { promoDiscount, appliedPromoNames, netTotal } = applyPromotions(promoInput, promos)
   const total = netTotal
 
@@ -138,7 +164,32 @@ export default function useVanSale({ employee, showToast, isOnline }) {
     if (!shopName.trim()) { showToast('⚠️ أدخل اسم المحل', true); return null }
 
     setSaving(true)
-    const items = cart.map((c) => ({ product_id: c.product_id, name: c.name, price: c.price, qty: c.qty }))
+    // ✅ بيع بالكرتون فقط: الدالة complete_van_sale (RPC) تخصم من مخزون
+    // الكاميو بنفس "qty" المُرسلة وتحسب الإجمالي بـ price×qty لكل صنف —
+    // وبما أن مخزون الكاميو مُسجَّل بالقطعة (نفس وحدة المخزون الرئيسي)،
+    // يجب أن تصل الدالة دائماً بـ qty بالقطعة الفعلية، وبسعر القطعة
+    // "الفعلي" (سعر الكرتون ÷ عدد الوحدات) حتى يبقى price×qty = المبلغ
+    // الصحيح تماماً كأننا بعنا بالكرتون. نُبقي أيضاً حقولاً إضافية
+    // (unit/display_qty/unit_price) للقراءة البشرية لاحقاً — RPC تتجاهلها
+    // ولا تؤثر على حساباتها لأنها تقرأ فقط product_id/price/qty.
+    const items = cart.map((c) => {
+      const isCarton = c.unitMode === 'carton' && c.units
+      return {
+        product_id: c.product_id,
+        name: c.name,
+        price: isCarton ? +(c.cartonPrice / c.units).toFixed(4) : c.price,
+        qty: isCarton ? c.qty * c.units : c.qty,
+        unit: isCarton ? 'carton' : 'unit',
+        display_qty: c.qty,
+        unit_price: isCarton ? c.cartonPrice : c.price,
+      }
+    })
+    // ✅ نسخة مقروءة للفاتورة المطبوعة فقط (بالكرتون وسعره الطبيعي، وليس
+    // بالحساب الداخلي بالقطعة) — لا تُرسل لقاعدة البيانات
+    const receiptItems = cart.map((c) => ({
+      product_id: c.product_id, name: c.name,
+      price: unitPrice(c), qty: c.qty, unit: c.unitMode === 'carton' ? 'carton' : 'unit',
+    }))
     const salePayload = {
       employee_id: employee.id,
       items,
@@ -152,7 +203,7 @@ export default function useVanSale({ employee, showToast, isOnline }) {
       shopPhone: shopPhone.trim(),
       employeeName: employee.name,
       date: new Date().toLocaleString('ar-DZ'),
-      items,
+      items: receiptItems,
       total,
       promoDiscount,
       appliedPromoNames,
@@ -214,7 +265,7 @@ export default function useVanSale({ employee, showToast, isOnline }) {
 
   return {
     vanStock, cart, saving, lastReceipt, setLastReceipt,
-    promoDiscount, appliedPromoNames, total,
+    promoDiscount, appliedPromoNames, total, unitPrice,
     addToCart, cartQtyFor, updateQty, removeFromCart, completeSale,
   }
 }
