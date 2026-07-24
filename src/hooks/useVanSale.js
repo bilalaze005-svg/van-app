@@ -8,6 +8,7 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase.js'
+import { fetchVanStock } from '../lib/vanStock.js'
 import { queueSale } from '../lib/offlineQueue.js'
 import { applyPromotions } from '../lib/promotions.js'
 
@@ -31,32 +32,6 @@ import { applyPromotions } from '../lib/promotions.js'
  * @property {number} maxQty     - أقصى كمية متاحة (من مخزون الكاميو)
  * @property {number|null} brand_id
  */
-
-/**
- * @param {string} employeeId
- * @returns {Promise<VanStockItem[]>}
- */
-async function fetchVanStock(employeeId) {
-  const { data, error } = await supabase.rpc('get_van_stock', { p_employee_id: employeeId })
-  if (error) throw error
-  const stock = data || []
-
-  // ✅ get_van_stock لا ترجع brand_id/carton_price/units (لازمة لعروض
-  // "خصم حسب الرتبة" وللبيع بالكرتون)، نجيبها باستعلام خفيف منفصل بدل
-  // تعديل دالة RPC نفسها
-  const ids = stock.map((s) => s.product_id).filter(Boolean)
-  let prodMap = {}
-  if (ids.length) {
-    const { data: prodExtra } = await supabase.from('products').select('id,brand_id,carton_price,units').in('id', ids)
-    prodMap = Object.fromEntries((prodExtra || []).map((p) => [p.id, p]))
-  }
-  return stock.map((s) => ({
-    ...s,
-    brand_id: prodMap[s.product_id]?.brand_id ?? null,
-    carton_price: prodMap[s.product_id]?.carton_price ?? null,
-    units: prodMap[s.product_id]?.units ?? null,
-  }))
-}
 
 async function fetchPromos() {
   const { data, error } = await supabase.from('promotions').select('*').eq('active', true)

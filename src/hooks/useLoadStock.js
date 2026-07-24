@@ -6,6 +6,7 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase.js'
+import { fetchVanStock } from '../lib/vanStock.js'
 
 const PAGE_SIZE = 30
 
@@ -21,12 +22,6 @@ async function fetchProductsPage({ search, pageParam = 0 }) {
     .range(from, from + PAGE_SIZE - 1)
   if (error) throw error
   return { items: data || [], nextPage: (data || []).length === PAGE_SIZE ? pageParam + 1 : undefined }
-}
-
-async function fetchVanStock(employeeId) {
-  const { data, error } = await supabase.rpc('get_van_stock', { p_employee_id: employeeId })
-  if (error) throw error
-  return data || []
 }
 
 export default function useLoadStock({ employee, showToast, search }) {
