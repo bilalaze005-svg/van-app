@@ -111,13 +111,9 @@ export default function LoginScreen({ onLogin }) {
           const retry = await supabase.auth.signInWithPassword({ email: realEmail, password: pass })
           if (retry.error) throw retry.error
         } else if (signUpErr.message?.toLowerCase().includes('already') || signUpErr.status === 422) {
-          // حساب موجود أصلاً بـSupabase Auth لكن كلمة المرور تغيّرت بالنظام
-          // القديم بعد أول إعداد — نزامنها مرة واحدة عبر كود بريد إلكتروني
-          setPendingRealEmail(realEmail)
-          setPendingPass(pass)
-          const { error: otpErr } = await supabase.auth.signInWithOtp({ email: realEmail })
-          if (otpErr) throw otpErr
-          setStep('resync')
+          // حساب Auth موجود أصلاً لكن كلمة المرور الحالية لا تطابقه —
+          // نادر، يحتاج تدخل الإدارة (تصفير كلمة المرور من لوحة Supabase)
+          setErr('⚠️ حسابك يحتاج إعادة ضبط من الإدارة — تواصل معهم لإعادة تفعيل الدخول')
           setLoading(false)
           return
         } else {
@@ -133,29 +129,6 @@ export default function LoginScreen({ onLogin }) {
       console.error('❌ خطأ تسجيل الدخول:', e)
       const detail = e?.message || e?.error_description || e?.hint || JSON.stringify(e)
       setErr('❌ ' + detail)
-      setLoading(false)
-    }
-  }
-
-  const verifyResync = async () => {
-    if (code.trim().length < 6) { setErr('أدخل الكود المرسل لبريدك'); return }
-    setErr(''); setLoading(true)
-    try {
-      const { error: verifyErr } = await supabase.auth.verifyOtp({
-        email: pendingRealEmail, token: code.trim(), type: 'email',
-      })
-      if (verifyErr) {
-        setErr('❌ الكود غير صحيح، حاول مجدداً')
-        setLoading(false)
-        return
-      }
-      const { error: updateErr } = await supabase.auth.updateUser({ password: pendingPass })
-      if (updateErr) throw updateErr
-      setCode('')
-      await proceedToMfa(pendingUser)
-    } catch (e) {
-      console.error('❌ خطأ مزامنة كلمة المرور:', e)
-      setErr('تعذّرت المزامنة، حاول مجدداً')
       setLoading(false)
     }
   }
@@ -217,34 +190,6 @@ export default function LoginScreen({ onLogin }) {
         onConfirmed={onEnrollConfirmed}
         onBack={backToCredentials}
       />
-    )
-  }
-
-  if (step === 'resync') {
-    return (
-      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: 24, background: T.primaryGradient }}>
-        <div style={{ background: 'white', borderRadius: 28, padding: 30, boxShadow: '0 20px 50px rgba(0,0,0,.2)' }}>
-          <div style={{ textAlign: 'center', marginBottom: 26 }}>
-            <div style={{ width: 72, height: 72, borderRadius: 22, background: T.primaryLight, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 34, margin: '0 auto 14px' }}>📧</div>
-            <h1 style={{ fontSize: 19, fontWeight: 900, color: T.text }}>تحديث كلمة المرور</h1>
-            <p style={{ fontSize: 12.5, color: T.textFaint, marginTop: 4 }}>لاحظنا تغييراً بكلمة المرور — أرسلنا كود تأكيد لبريدك (مرة واحدة فقط)</p>
-          </div>
-          <label style={{ fontSize: 12.5, fontWeight: 700, color: T.textSoft }}>الكود المرسل لبريدك الإلكتروني</label>
-          <input
-            autoFocus value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
-            onKeyDown={(e) => e.key === 'Enter' && verifyResync()}
-            inputMode="numeric"
-            style={{ ...inputStyle, marginTop: 6, marginBottom: 16, textAlign: 'center', fontSize: 22, letterSpacing: 8, fontWeight: 900 }}
-            placeholder="••••••"
-          />
-          {err && <div style={{ background: '#FEE2E2', color: T.danger, borderRadius: 12, padding: '11px 14px', fontSize: 13, marginBottom: 16, textAlign: 'center', fontWeight: 600 }}>{err}</div>}
-          <button onClick={verifyResync} disabled={loading}
-            style={{ ...buttonPrimary, width: '100%', padding: 16, fontSize: 15.5, marginBottom: 10, background: loading ? T.textFaint : T.primaryGradient }}>
-            {loading ? '⏳ جارِ التحقق...' : '✅ تأكيد ومتابعة'}
-          </button>
-          <button onClick={backToCredentials} style={{ ...buttonGhost, width: '100%', padding: '8px 14px', fontSize: 12 }}>← رجوع</button>
-        </div>
-      </div>
     )
   }
 
