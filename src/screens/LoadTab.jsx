@@ -16,7 +16,12 @@ export default function LoadTab({ employee, showToast }) {
   }
 
   const vanTotalItems = vanStock.reduce((s, v) => s + Number(v.qty), 0)
-  const vanTotalValue = vanStock.reduce((s, v) => s + Number(v.qty) * Number(v.price), 0)
+  // ✅ v.qty دائماً بالكرتون؛ نحسب القيمة بسعر الكرتون لو كان المنتج
+  // معرَّفاً بسعر كرتون (carton_price/units)، وإلا فسعر القطعة
+  const vanTotalValue = vanStock.reduce((s, v) => {
+    const unitPrice = (v.carton_price && v.units) ? Number(v.carton_price) : Number(v.price)
+    return s + Number(v.qty) * unitPrice
+  }, 0)
 
   return (
     <div style={{ padding: 16 }}>
@@ -113,4 +118,4 @@ export default function LoadTab({ employee, showToast }) {
       )}
     </div>
   )
-}
+                             }
