@@ -110,3 +110,33 @@ export function applyPromotions(items, promos = []) {
 
   return { lines, subtotal, savedAmount, promoDiscount, appliedPromoNames, netTotal }
 }
+
+/**
+ * وصف نصي مبسّط لعرض واحد، يُستخدم لعرضه للموظف (بدون حاجة لأسماء
+ * المنتجات) — مثال: "خصم 15% على الطلبات فوق 500 دج" أو "اشترِ 3 واحصل على 1 مجاناً".
+ */
+export function describePromo(promo) {
+  const type = promo?.type
+  if (type === 'bogo') {
+    const buy = parseInt(promo.tier_qty) || 0
+    const get = parseInt(promo.tier_value) || 0
+    return buy && get ? `اشترِ ${buy} واحصل على ${get} مجاناً` : 'عرض اشترِ واحصل على مجاناً'
+  }
+  if (type === 'percent') {
+    const min = parseFloat(promo.min_amount) || 0
+    const val = parseFloat(promo.discount_value) || 0
+    return min > 0 ? `خصم ${val}% على الطلبات فوق ${min} دج` : `خصم ${val}%`
+  }
+  if (type === 'fixed') {
+    const min = parseFloat(promo.min_amount) || 0
+    const val = parseFloat(promo.discount_value) || 0
+    return min > 0 ? `خصم ${val} دج لكل وحدة (بدءاً من ${min} دج)` : `خصم ${val} دج لكل وحدة مشتراة`
+  }
+  if (type === 'tier_discount') {
+    const qty = parseInt(promo.tier_qty) || 0
+    const val = parseFloat(promo.tier_value) || 0
+    const isPercent = promo.tier_type !== 'fixed'
+    return `عند شراء ${qty} قطعة فأكثر: خصم ${val}${isPercent ? '%' : ' دج'}`
+  }
+  return promo?.description || 'عرض خاص'
+}

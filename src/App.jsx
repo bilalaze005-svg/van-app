@@ -10,6 +10,7 @@ import LoginScreen from './screens/LoginScreen.jsx'
 import LoadTab from './screens/LoadTab.jsx'
 import SellTab from './screens/SellTab.jsx'
 import SettlementTab from './screens/SettlementTab.jsx'
+import PromotionsTab from './screens/PromotionsTab.jsx'
 import PrinterSettingsScreen from './screens/PrinterSettingsScreen.jsx'
 import NotificationsScreen from './screens/NotificationsScreen.jsx'
 
@@ -139,6 +140,7 @@ export default function App() {
   const TABS = [
     { id: 'sell', icon: '🛒', label: 'بيع' },
     { id: 'load', icon: '⬆️', label: 'تحميل' },
+    { id: 'promos', icon: '🎯', label: 'عروض' },
     { id: 'settlement', icon: '📊', label: 'محاسبة' },
   ]
 
@@ -205,6 +207,7 @@ export default function App() {
       {/* محتوى التبويب */}
       {tab === 'sell' && <SellTab employee={employee} showToast={showToast} />}
       {tab === 'load' && <LoadTab employee={employee} showToast={showToast} />}
+      {tab === 'promos' && <PromotionsTab />}
       {tab === 'settlement' && <SettlementTab employee={employee} />}
 
       {/* شريط تنقّل سفلي */}
