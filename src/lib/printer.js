@@ -223,9 +223,10 @@ function renderReceiptCanvas({ shopName, shopPhone, items, total, payMode, emplo
 
   const padding = 10
   const lineHeight = Math.round(30 * s)
+  const promoLineHeight = Math.round(22 * s) // سطر إضافي تحت أي منتج فيه خصم عرض
   const headerHeight = Math.round(110 * s)
   const footerHeight = Math.round(70 * s)
-  const bodyHeight = items.length * lineHeight
+  const bodyHeight = items.reduce((h, it) => h + lineHeight + (it.promoAmount > 0 ? promoLineHeight : 0), 0)
   const discountHeight = (promoDiscount > 0) ? Math.round(26 * s) : 0
   const totalHeight = headerHeight + bodyHeight + discountHeight + footerHeight
 
@@ -268,14 +269,24 @@ function renderReceiptCanvas({ shopName, shopPhone, items, total, payMode, emplo
   ctx.stroke()
   y += Math.round(20 * s)
 
-  ctx.font = `${f(16)}px Arial`
   for (const it of items) {
     const lineTotal = (it.price * it.qty).toFixed(0)
+    ctx.font = `${f(16)}px Arial`
     ctx.textAlign = 'right'
     ctx.fillText(`${it.name}`, widthPx - padding, y)
     ctx.textAlign = 'left'
     ctx.fillText(`${it.qty}${it.unit === 'carton' ? ' كرتون' : ''} × ${it.price} = ${lineTotal} دج`, padding, y)
     y += lineHeight
+
+    // ✅ سطر ثانٍ فقط لو هذا المنتج استفاد فعلاً من عرض — يبيّن مبلغ
+    // الخصم والصافي بعده، دون إضافة أعمدة فارغة (ضرائب/خصم يدوي) غير
+    // موجودة أصلاً بالنظام
+    if (it.promoAmount > 0) {
+      ctx.font = `${f(13)}px Arial`
+      ctx.textAlign = 'right'
+      ctx.fillText(`🎯 خصم عرض: -${it.promoAmount.toFixed(0)} دج  ←  الصافي: ${it.netLineTotal.toFixed(0)} دج`, widthPx - padding, y)
+      y += promoLineHeight
+    }
   }
 
   ctx.beginPath()

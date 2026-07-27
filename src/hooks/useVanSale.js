@@ -125,7 +125,7 @@ export default function useVanSale({ employee, showToast, isOnline }) {
 
   // ✅ حساب العروض المطبَّقة على السلة الحالية (bogo/percent/fixed/tier_discount)
   const promoInput = cart.map((c) => ({ id: c.product_id, price: unitPrice(c), qty: c.qty, brand_id: c.brand_id }))
-  const { promoDiscount, appliedPromoNames, netTotal } = applyPromotions(promoInput, promos)
+  const { lines: promoLines, promoDiscount, appliedPromoNames, netTotal } = applyPromotions(promoInput, promos)
   const total = netTotal
 
   // ينجز عملية البيع. يرجع {queued: boolean} عند النجاح، أو يرمي استثناء
@@ -161,10 +161,14 @@ export default function useVanSale({ employee, showToast, isOnline }) {
     })
     // ✅ نسخة مقروءة للفاتورة المطبوعة فقط (بالوحدة الطبيعية للزبون)،
     // مختلفة عن items فقط في حالة استثناء بيع القطعة (كسر الكرتون هناك
-    // غير مقروء بشرياً على الفاتورة)
-    const receiptItems = cart.map((c) => ({
+    // غير مقروء بشرياً على الفاتورة) — مع إرفاق مبلغ خصم العرض المطبَّق
+    // على كل منتج (promoAmount) والصافي بعده (netLineTotal) من promoLines،
+    // ليعرضهما printer.js تحت اسم كل منتج بالفاتورة
+    const receiptItems = cart.map((c, i) => ({
       product_id: c.product_id, name: c.name,
       price: unitPrice(c), qty: c.qty, unit: c.unitMode === 'carton' ? 'carton' : 'unit',
+      promoAmount: promoLines[i]?.promoAmount || 0,
+      netLineTotal: promoLines[i]?.netLineTotal ?? (unitPrice(c) * c.qty),
     }))
     const salePayload = {
       employee_id: employee.id,

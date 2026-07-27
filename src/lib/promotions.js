@@ -52,6 +52,12 @@ export function applyPromotions(items, promos = []) {
 
   let promoDiscount = 0
   const appliedPromoNames = []
+  // ✅ خصومات percent/fixed/tier_discount تُحسب على مستوى مجموعة أسطر مؤهّلة
+  // كاملة (subtotal مشترك)، وليس لكل سطر منفرد — لذلك لتوزيعها على كل سطر
+  // (لعرضها بالفاتورة المطبوعة)، نوزّع مبلغ كل عرض تناسبياً حسب حصة كل سطر
+  // من إجمالي الأسطر المؤهّلة لذلك العرض بالذات (بند percent هذا التوزيع
+  // فيه مطابق تماماً للمبلغ الحقيقي؛ fixed/tier_discount تقريب معقول للعرض فقط)
+  const lineValueDiscount = new Array(lines.length).fill(0)
 
   for (const promo of valuePromos) {
     let qualifyingLines
@@ -102,13 +108,26 @@ export function applyPromotions(items, promos = []) {
     if (amt > 0) {
       promoDiscount += amt
       appliedPromoNames.push(promo.name)
+      for (const ql of qualifyingLines) {
+        const idx = lines.indexOf(ql)
+        if (idx === -1) continue
+        lineValueDiscount[idx] += (ql.lineTotal / qualifyingSubtotal) * amt
+      }
     }
   }
 
   promoDiscount = Math.min(promoDiscount, subtotal)
   const netTotal = subtotal - promoDiscount
 
-  return { lines, subtotal, savedAmount, promoDiscount, appliedPromoNames, netTotal }
+  // ✅ خصم العرض الكلي لكل سطر (bogo + حصته من percent/fixed/tier_discount)
+  // والصافي بعده — يُستخدمان لعرض تفصيل كل منتج على الفاتورة المطبوعة
+  const finalLines = lines.map((l, i) => {
+    const bogoAmt = l.freeQty * l.unitPrice
+    const valueAmt = Math.min(lineValueDiscount[i], l.lineTotal)
+    return { ...l, promoAmount: bogoAmt + valueAmt, netLineTotal: Math.max(l.lineTotal - valueAmt, 0) }
+  })
+
+  return { lines: finalLines, subtotal, savedAmount, promoDiscount, appliedPromoNames, netTotal }
 }
 
 /**
