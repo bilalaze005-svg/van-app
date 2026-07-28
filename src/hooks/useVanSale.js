@@ -213,7 +213,7 @@ export default function useVanSale({ employee, showToast, isOnline }) {
       // ✅ نداء واحد ذرّي: يخصم كل الأصناف ويسجّل الطلب داخل معاملة واحدة.
       // لو فشل أي صنف (نقص كمية مثلاً)، تتراجع كل العملية تلقائياً.
       // انظر supabase/complete_van_sale.sql
-      const { error } = await supabase.rpc('complete_van_sale', {
+      const { data, error } = await supabase.rpc('complete_van_sale', {
         p_employee_id: employee.id,
         p_items: items,
         p_customer_name: shopName.trim(),
@@ -223,12 +223,35 @@ export default function useVanSale({ employee, showToast, isOnline }) {
       })
       if (error) throw error
 
+      // ✅ الفاتورة المطبوعة تُبنى الآن من نتيجة الخادم الحقيقية
+      // (data.items/data.total/data.discount) وليس من الحساب المحلي —
+      // الخادم هو مصدر الحقيقة الوحيد للسعر والعروض (قد يختلف عن تقدير
+      // المتصفح في حالات نادرة: عرض انتهى للتو، أو عدّله الإداري بنفس
+      // اللحظة). promoAmount لكل سطر يبقى تقريباً محلياً (توزيع تناسبي
+      // لعرض الفاتورة فقط)، مطابَقاً بـproduct_id على عناصر الخادم
+      // الحقيقية — بنفس أسلوب confirm-app.
+      const verifiedItems = (data?.items || []).map((it) => {
+        const pl = promoLines.find((l) => l.id === it.product_id)
+        return {
+          product_id: it.product_id, name: it.name,
+          price: it.price, qty: it.qty, unit: it.unit,
+          promoAmount: pl?.promoAmount || 0,
+          netLineTotal: it.total,
+        }
+      })
+      const verifiedReceipt = {
+        ...receiptData,
+        items: verifiedItems.length ? verifiedItems : receiptItems,
+        total: data?.total ?? total,
+        promoDiscount: data?.discount ?? promoDiscount,
+      }
+
       setCart([])
-      setLastReceipt(receiptData)
+      setLastReceipt(verifiedReceipt)
       // ✅ إضافة بسيطة أتاحتها React Query: تحديث المخزون من الخادم مباشرة
       // بعد نجاح البيع فعلياً (بدل انتظار إعادة تحميل الصفحة لاحقاً)
       vanStockQuery.refetch()
-      return { queued: false, receiptData }
+      return { queued: false, receiptData: verifiedReceipt }
     } catch (e) {
       const isNetworkError = e?.message === 'Failed to fetch' || e?.name === 'TypeError'
       if (isNetworkError) {
