@@ -130,6 +130,7 @@ export default function LoginScreen({ onLogin }) {
       // الجلسة تطابق فعلاً الموظف، بدل الثقة بمعامل من العميل.
       const { error: linkErr } = await supabase.rpc('link_my_employee_account', {
         p_employee_id: sessionUser.id,
+        p_password: pass,
       })
       if (linkErr) {
         console.error('❌ خطأ ربط الحساب:', linkErr)
